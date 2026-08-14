@@ -1,16 +1,16 @@
 # Claude Code status line
 
-Status line for [Claude Code](https://claude.com/claude-code). Shows working dir, git branch/dirty marker, model, context-window usage, output style (if non-default), and the 5-hour and weekly rate-limit quotas (with reset times). The quotas join the first line if there's room, otherwise wrap onto a second line.
+Status line for [Claude Code](https://claude.com/claude-code). Shows working dir, git branch/dirty marker, the 5-hour and weekly rate-limit quotas (with reset times), model, context-window usage, and output style (if non-default). Model/context/style join the first line if there's room, otherwise wrap onto a second line.
 
 ```
-➜  myrepo  git:(main) ✗ · Opus 4.7 high · Context 42% · explanatory · 5-hour 14% (2h 15m) · Weekly 40% (Mon 09:00)
+➜  myrepo  git:(main) ✗ · 5-hour 14% (2h 15m) · Weekly 40% (Mon 09:00) · Opus 4.7 high · Context 42% · explanatory
 ```
 
 On a narrow terminal:
 
 ```
-➜  myrepo  git:(main) ✗ · Opus 4.7 high · Context 42% · explanatory
-5-hour 14% (2h 15m) · Weekly 40% (Mon 09:00)
+➜  myrepo  git:(main) ✗ · 5-hour 14% (2h 15m) · Weekly 40% (Mon 09:00)
+Opus 4.7 high · Context 42% · explanatory
 ```
 
 Segments (left → right):
@@ -89,4 +89,4 @@ cat ~/.claude/statusline-debug.json | sh ~/.claude/statusline-command.sh
 - **Colors**: 256-color ANSI codes inline (`\033[38;5;NNNm`).
 - **Segment separator**: segments join with a grey `" · "`; edit the `sep` variable.
 - **Quota thresholds**: edit `if [ "$quota_int" -ge 80 ]` / `-ge 50` blocks.
-- **Fallback terminal width**: `${COLUMNS:-80}`, used only to decide whether quotas wrap to line 2.
+- **Fallback terminal width**: `${COLUMNS:-80}`, used only to decide whether model/context/style wrap to line 2.

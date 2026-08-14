@@ -147,28 +147,28 @@ strip_ansi() {
   printf '%s' "$1" | sed 's/\\033\[[0-9;]*m//g'
 }
 
-# Line 1 base: dir/git + model + context + style; quotas join it too if they fit, else wrap to line 2
-line1_base=$(join_segments "$model_info" "$ctx_info" "$style_info")
+# Line 1 base: dir/git + quotas; model + context + style join it too if they fit, else wrap to line 2
 quotas=$(join_segments "$quota_info" "$quota_7d_info")
+rest=$(join_segments "$model_info" "$ctx_info" "$style_info")
 
 # Build left segment (with color codes)
 left_colored="\033[97m➜\033[0m  \033[97m${dir}\033[0m${git_info}"
 
-line1=$(join_segments "$left_colored" "$line1_base")
+line1=$(join_segments "$left_colored" "$quotas")
 
 # Claude Code sets COLUMNS to the real terminal width before running this script
 # (no pty is attached, so tput cols won't work here); fall back to 80 if unset.
 term_width="${COLUMNS:-80}"
 
-if [ -n "$quotas" ]; then
-  line1_with_quotas=$(join_segments "$line1" "$quotas")
-  line1_with_quotas_plain=$(strip_ansi "$line1_with_quotas")
-  line1_with_quotas_len=${#line1_with_quotas_plain}
-  if [ "$line1_with_quotas_len" -le "$term_width" ]; then
-    printf '%b\n' "$line1_with_quotas"
+if [ -n "$rest" ]; then
+  line1_with_rest=$(join_segments "$line1" "$rest")
+  line1_with_rest_plain=$(strip_ansi "$line1_with_rest")
+  line1_with_rest_len=${#line1_with_rest_plain}
+  if [ "$line1_with_rest_len" -le "$term_width" ]; then
+    printf '%b\n' "$line1_with_rest"
   else
     printf '%b\n' "$line1"
-    printf '%b\n' "$quotas"
+    printf '%b\n' "$rest"
   fi
 else
   printf '%b\n' "$line1"
