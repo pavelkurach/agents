@@ -126,40 +126,50 @@ if [ -n "$model" ]; then
   fi
 fi
 
-# Strip ANSI escape codes to measure plain text length (BSD sed compatible)
-ESC=$(printf '\033')
-strip_ansi() {
-  printf '%s' "$1" | sed "s/${ESC}\[[0-9;]*m//g"
+# Join non-empty segments with a grey " · " separator
+sep="\033[38;5;240m ·\033[0m "
+join_segments() {
+  joined=""
+  for seg in "$@"; do
+    [ -z "$seg" ] && continue
+    if [ -z "$joined" ]; then
+      joined="$seg"
+    else
+      joined="${joined}${sep}${seg}"
+    fi
+  done
+  printf '%s' "$joined"
 }
 
-# Join non-empty right-side segments with a grey " · " separator
-sep="\033[38;5;240m ·\033[0m "
-right_colored=""
-for seg in "$quota_info" "$quota_7d_info" "$style_info" "$model_info" "$ctx_info"; do
-  [ -z "$seg" ] && continue
-  if [ -z "$right_colored" ]; then
-    right_colored="$seg"
+# Strip literal "\033[...m" escape sequences (not yet interpreted — that happens at printf %b time)
+# to measure plain text length.
+strip_ansi() {
+  printf '%s' "$1" | sed 's/\\033\[[0-9;]*m//g'
+}
+
+# Line 1 base: dir/git + model + context + style; quotas join it too if they fit, else wrap to line 2
+line1_base=$(join_segments "$model_info" "$ctx_info" "$style_info")
+quotas=$(join_segments "$quota_info" "$quota_7d_info")
+
+# Build left segment (with color codes)
+left_colored="\033[97m➜\033[0m  \033[97m${dir}\033[0m${git_info}"
+
+line1=$(join_segments "$left_colored" "$line1_base")
+
+# Claude Code sets COLUMNS to the real terminal width before running this script
+# (no pty is attached, so tput cols won't work here); fall back to 80 if unset.
+term_width="${COLUMNS:-80}"
+
+if [ -n "$quotas" ]; then
+  line1_with_quotas=$(join_segments "$line1" "$quotas")
+  line1_with_quotas_plain=$(strip_ansi "$line1_with_quotas")
+  line1_with_quotas_len=${#line1_with_quotas_plain}
+  if [ "$line1_with_quotas_len" -le "$term_width" ]; then
+    printf '%b\n' "$line1_with_quotas"
   else
-    right_colored="${right_colored}${sep}${seg}"
+    printf '%b\n' "$line1"
+    printf '%b\n' "$quotas"
   fi
-done
-[ -n "$right_colored" ] && right_colored="  ${right_colored}"
-
-# Build left and right segments (with color codes)
-left_colored="$(printf '\033[97m➜\033[0m  \033[97m%s\033[0m' "$dir")${git_info}"
-
-# Measure visible lengths by stripping ANSI
-left_plain=$(strip_ansi "$left_colored")
-right_plain=$(strip_ansi "$right_colored")
-left_len=${#left_plain}
-right_len=${#right_plain}
-
-# Get terminal width (fall back to 80)
-term_width="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
-
-# Calculate padding needed between left and right
-pad=$(( term_width - left_len - right_len ))
-if [ "$pad" -lt 1 ]; then pad=1; fi
-padding=$(printf '%*s' "$pad" '')
-
-printf '%b%s%b\n' "$left_colored" "$padding" "$right_colored"
+else
+  printf '%b\n' "$line1"
+fi

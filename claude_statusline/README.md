@@ -1,9 +1,16 @@
 # Claude Code status line
 
-Status line for [Claude Code](https://claude.com/claude-code). Shows working dir, git branch + dirty marker, 5-hour and weekly rate-limit quotas (with reset times), output style (if non-default), model, and context-window usage.
+Status line for [Claude Code](https://claude.com/claude-code). Shows working dir, git branch/dirty marker, model, context-window usage, output style (if non-default), and the 5-hour and weekly rate-limit quotas (with reset times). The quotas join the first line if there's room, otherwise wrap onto a second line.
 
 ```
-➜  myrepo  git:(main) ✗   5-hour 14% (2h 15m) · Weekly 40% (Mon 09:00) · explanatory · Opus 4.7 high · Context 42%
+➜  myrepo  git:(main) ✗ · Opus 4.7 high · Context 42% · explanatory · 5-hour 14% (2h 15m) · Weekly 40% (Mon 09:00)
+```
+
+On a narrow terminal:
+
+```
+➜  myrepo  git:(main) ✗ · Opus 4.7 high · Context 42% · explanatory
+5-hour 14% (2h 15m) · Weekly 40% (Mon 09:00)
 ```
 
 Segments (left → right):
@@ -22,7 +29,8 @@ Segments (left → right):
 ## Requires
 
 - `jq` — Claude Code pipes JSON to stdin
-- POSIX `sh`, `sed`, `tput`, `date`, `git` (default on macOS/Linux)
+- POSIX `sh`, `sed`, `date`, `git` (default on macOS/Linux)
+- Claude Code v2.1.153+ (sets `COLUMNS`/`LINES` before running the status line command)
 
 ## Install
 
@@ -79,6 +87,6 @@ cat ~/.claude/statusline-debug.json | sh ~/.claude/statusline-command.sh
 ## Customize
 
 - **Colors**: 256-color ANSI codes inline (`\033[38;5;NNNm`).
-- **Segment separator**: right-side segments join with a grey `" · "`; edit the `sep` variable.
+- **Segment separator**: segments join with a grey `" · "`; edit the `sep` variable.
 - **Quota thresholds**: edit `if [ "$quota_int" -ge 80 ]` / `-ge 50` blocks.
-- **Fallback terminal width**: `${COLUMNS:-$(tput cols ... || echo 80)}`.
+- **Fallback terminal width**: `${COLUMNS:-80}`, used only to decide whether quotas wrap to line 2.
