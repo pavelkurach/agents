@@ -93,12 +93,33 @@ model=$(echo "$input" | jq -r '.model.display_name // ""')
 # Reasoning effort level
 effort=$(echo "$input" | jq -r '.effort.level // ""')
 
+# Progress bar helper: build_bar <percent_int> <width>
+build_bar() {
+  pct=$1
+  width=$2
+  filled=$(( (pct * width + 50) / 100 ))
+  empty=$(( width - filled ))
+  bar=""
+  i=0
+  while [ $i -lt $filled ]; do
+    bar="${bar}█"
+    i=$(( i + 1 ))
+  done
+  i=0
+  while [ $i -lt $empty ]; do
+    bar="${bar}░"
+    i=$(( i + 1 ))
+  done
+  printf '%s' "$bar"
+}
+
 # Context used percentage
 ctx_used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
 ctx_info=""
 if [ -n "$ctx_used" ]; then
   ctx_int=$(printf '%.0f' "$ctx_used")
-  ctx_info="\033[38;5;247mContext ${ctx_int}%\033[0m"
+  ctx_bar=$(build_bar "$ctx_int" 8)
+  ctx_info="\033[38;5;249mContext ${ctx_int}% ${ctx_bar}\033[0m"
 fi
 
 # Output style (only shown when non-default)
