@@ -3,7 +3,7 @@
 Status line for [Claude Code](https://claude.com/claude-code). Shows working dir, git branch + dirty marker, 5-hour and weekly rate-limit quotas (with reset times), output style (if non-default), model, and context-window usage.
 
 ```
-➜  myrepo  git:(main) ✗   5-hour 14% (2h 15m) · Weekly 40% (Mon 09:00) · explanatory · Opus 4.7 high · Context 42% ███░░░░░
+➜  myrepo  git:(main) ✗   5-hour 14% (2h 15m) · Weekly 40% (Mon 09:00) · explanatory · Opus 4.7 high · Context 42%
 ```
 
 Segments (left → right):
@@ -17,7 +17,7 @@ Segments (left → right):
 | `Weekly N% (...)` | `rate_limits.seven_day.{used_percentage,resets_at}` | green <40, yellow 40–69, red ≥70; absolute reset time (24h), time-only if today else `Day HH:MM` |
 | `<style>` | `output_style.name` | omitted when style is `default` |
 | `<model>` | `model.display_name` | cream-coloured |
-| `Context N% █░` | `context_window.used_percentage` | 8-cell bar + percent, light grey |
+| `Context N%` | `context_window.used_percentage` | green <40, yellow 40–69, red ≥70 |
 
 ## Requires
 
@@ -79,7 +79,6 @@ cat ~/.claude/statusline-debug.json | sh ~/.claude/statusline-command.sh
 ## Customize
 
 - **Colors**: 256-color ANSI codes inline (`\033[38;5;NNNm`).
-- **Bar width**: `build_bar "$ctx_int" 8` — change `8`.
 - **Segment separator**: right-side segments join with a grey `" · "`; edit the `sep` variable.
 - **Quota thresholds**: edit `if [ "$quota_int" -ge 80 ]` / `-ge 50` blocks.
 - **Fallback terminal width**: `${COLUMNS:-$(tput cols ... || echo 80)}`.
