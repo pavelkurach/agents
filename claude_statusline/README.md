@@ -3,7 +3,7 @@
 Status line for [Claude Code](https://claude.com/claude-code). Shows working dir, git branch + dirty marker, 5-hour and weekly rate-limit quotas (with reset times), output style (if non-default), model, and context-window usage.
 
 ```
-➜  myrepo  git:(main) ✗   5-hour 14% (3:00pm) · Weekly 40% (Mon 9:00am) · explanatory · Opus 4.7 · Context 42%
+➜  myrepo  git:(main) ✗   5-hour 14% (2h 15m) · Weekly 40% (5d 8h) · explanatory · Opus 4.7 high · Context 42%
 ```
 
 Segments (left → right):
@@ -13,7 +13,7 @@ Segments (left → right):
 | `➜ <dir>` | `$cwd` basename | white arrow + dir |
 | `git:(<branch>)` | `git symbolic-ref` | omitted if not a git repo |
 | `✗` | `git status --porcelain` | red, present only if working tree dirty |
-| `5-hour N% (...)` | `rate_limits.five_hour.{used_percentage,resets_at}` | green <50, yellow 50–79, red ≥80; reset shown as time-only if today, else `Day H:MMam/pm` |
+| `5-hour N% (...)` | `rate_limits.five_hour.{used_percentage,resets_at}` | green <50, yellow 50–79, red ≥80; time remaining until reset, e.g. `2h 15m`, `1d 3h`, or `40m` |
 | `Weekly N% (...)` | `rate_limits.seven_day.{used_percentage,resets_at}` | green <40, yellow 40–69, red ≥70; same reset format |
 | `<style>` | `output_style.name` | omitted when style is `default` |
 | `<model>` | `model.display_name` | cream-coloured |

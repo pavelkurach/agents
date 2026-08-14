@@ -15,18 +15,22 @@ if git_branch=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" symbolic-ref --short HEAD 2>/
   git_info="  \033[38;5;250mgit:(${git_branch})\033[0m${dirty}"
 fi
 
-# Format a unix timestamp as a human reset time: "3:00pm" (today) or "Mon 9:00am" (other day)
+# Format a unix timestamp as time remaining until reset: "2h 15m" or "1d 3h"
 format_reset() {
   ts=$1
   [ -z "$ts" ] && return
-  today=$(date '+%Y-%m-%d')
-  reset_day=$(date -r "$ts" '+%Y-%m-%d' 2>/dev/null)
-  if [ "$reset_day" = "$today" ]; then
-    date -r "$ts" '+%-I:%M%p' 2>/dev/null | tr '[:upper:]' '[:lower:]'
+  now=$(date '+%s')
+  delta=$(( ts - now ))
+  [ "$delta" -lt 0 ] && delta=0
+  days=$(( delta / 86400 ))
+  hours=$(( (delta % 86400) / 3600 ))
+  minutes=$(( (delta % 3600) / 60 ))
+  if [ "$days" -gt 0 ]; then
+    printf '%dd %dh' "$days" "$hours"
+  elif [ "$hours" -gt 0 ]; then
+    printf '%dh %dm' "$hours" "$minutes"
   else
-    day_abbr=$(date -r "$ts" '+%a' 2>/dev/null)
-    time_str=$(date -r "$ts" '+%-I:%M%p' 2>/dev/null | tr '[:upper:]' '[:lower:]')
-    printf '%s %s' "$day_abbr" "$time_str"
+    printf '%dm' "$minutes"
   fi
 }
 
@@ -93,7 +97,7 @@ fi
 model_info=""
 if [ -n "$model" ]; then
   if [ -n "$effort" ]; then
-    model_info="\033[38;5;230m${model} · ${effort}\033[0m"
+    model_info="\033[38;5;230m${model} ${effort}\033[0m"
   else
     model_info="\033[38;5;230m${model}\033[0m"
   fi
