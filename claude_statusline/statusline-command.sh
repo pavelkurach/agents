@@ -34,6 +34,21 @@ format_reset() {
   fi
 }
 
+# Format a unix timestamp as an absolute reset time: "15:00" (today) or "Mon 15:00" (other day)
+format_reset_absolute() {
+  ts=$1
+  [ -z "$ts" ] && return
+  today=$(date '+%Y-%m-%d')
+  reset_day=$(date -r "$ts" '+%Y-%m-%d' 2>/dev/null)
+  if [ "$reset_day" = "$today" ]; then
+    date -r "$ts" '+%H:%M' 2>/dev/null
+  else
+    day_abbr=$(date -r "$ts" '+%a' 2>/dev/null)
+    time_str=$(date -r "$ts" '+%H:%M' 2>/dev/null)
+    printf '%s %s' "$day_abbr" "$time_str"
+  fi
+}
+
 # 5hr rate-limit quota used
 quota_5h=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 quota_5h_reset=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
@@ -67,7 +82,7 @@ if [ -n "$quota_7d" ]; then
   else
     q7dcolor=151
   fi
-  reset_str=$(format_reset "$quota_7d_reset")
+  reset_str=$(format_reset_absolute "$quota_7d_reset")
   [ -n "$reset_str" ] && reset_str=" (${reset_str})"
   quota_7d_info="\033[38;5;${q7dcolor}mWeekly ${quota_7d_int}%${reset_str}\033[0m"
 fi
