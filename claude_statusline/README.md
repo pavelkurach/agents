@@ -20,11 +20,11 @@ Segments (left → right):
 | `➜ <dir>` | `$cwd` basename | white arrow + dir |
 | `git:(<branch>)` | `git symbolic-ref` | omitted if not a git repo |
 | `✗` | `git status --porcelain` | red, present only if working tree dirty |
-| `5-hour N% (...)` | `rate_limits.five_hour.{used_percentage,resets_at}` | green <50, yellow 50–79, red ≥80; time remaining until reset, e.g. `2h 15m`, `1d 3h`, or `40m` |
-| `Weekly N% (...)` | `rate_limits.seven_day.{used_percentage,resets_at}` | green <40, yellow 40–69, red ≥70; absolute reset time (24h), time-only if today else `Day HH:MM` |
-| `<style>` | `output_style.name` | omitted when style is `default` |
-| `<model>` | `model.display_name` | cream-coloured |
-| `Context N%` | `context_window.used_percentage` | green <40, yellow 40–69, red ≥70 |
+| `5-hour N% (...)` | `rate_limits.five_hour.{used_percentage,resets_at}` | grey <50, amber 50–79, red ≥80; time remaining until reset, e.g. `2h 15m`, `1d 3h`, or `40m` |
+| `Weekly N% (...)` | `rate_limits.seven_day.{used_percentage,resets_at}` | grey <50, amber 50–79, red ≥80; absolute reset time (24h), time-only if today else `Day HH:MM` |
+| `<style>` | `output_style.name` | mauve |
+| `<model>` | `model.display_name` | warm cream |
+| `Context N%` | `context_window.used_percentage` | grey <40, dark amber 40–69, dark red ≥70 — darker variants of the quota palette |
 
 ## Requires
 

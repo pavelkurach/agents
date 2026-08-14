@@ -10,9 +10,9 @@ git_info=""
 if git_branch=$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null); then
   dirty=""
   if [ -n "$(GIT_OPTIONAL_LOCKS=0 git -C "$cwd" status --porcelain 2>/dev/null)" ]; then
-    dirty=" \033[38;5;203m✗\033[0m"
+    dirty=" \033[38;5;167m✗\033[0m"
   fi
-  git_info="  \033[38;5;250mgit:(${git_branch})\033[0m${dirty}"
+  git_info="  \033[38;5;245mgit:(${git_branch})\033[0m${dirty}"
 fi
 
 # Format a unix timestamp as time remaining until reset: "2h 15m" or "1d 3h"
@@ -55,32 +55,32 @@ quota_5h_reset=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empt
 quota_info=""
 if [ -n "$quota_5h" ]; then
   quota_int=$(printf '%.0f' "$quota_5h")
-  # color escalates: green <50, yellow 50-79, red >=80
+  # color escalates: grey <50, amber 50-79, red >=80
   if [ "$quota_int" -ge 80 ]; then
-    qcolor=203
+    qcolor=167
   elif [ "$quota_int" -ge 50 ]; then
-    qcolor=221
+    qcolor=179
   else
-    qcolor=151
+    qcolor=251
   fi
   reset_str=$(format_reset "$quota_5h_reset")
   [ -n "$reset_str" ] && reset_str=" (${reset_str})"
   quota_info="\033[38;5;${qcolor}m5-hour ${quota_int}%${reset_str}\033[0m"
 fi
 
-# 7-day rate-limit quota used (stricter thresholds — weekly is harder to recover)
+# 7-day rate-limit quota used
 quota_7d=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
 quota_7d_reset=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
 quota_7d_info=""
 if [ -n "$quota_7d" ]; then
   quota_7d_int=$(printf '%.0f' "$quota_7d")
-  # color escalates: green <40, yellow 40-69, red >=70
-  if [ "$quota_7d_int" -ge 70 ]; then
-    q7dcolor=203
-  elif [ "$quota_7d_int" -ge 40 ]; then
-    q7dcolor=221
+  # color escalates: grey <50, amber 50-79, red >=80
+  if [ "$quota_7d_int" -ge 80 ]; then
+    q7dcolor=167
+  elif [ "$quota_7d_int" -ge 50 ]; then
+    q7dcolor=179
   else
-    q7dcolor=151
+    q7dcolor=251
   fi
   reset_str=$(format_reset_absolute "$quota_7d_reset")
   [ -n "$reset_str" ] && reset_str=" (${reset_str})"
@@ -98,13 +98,13 @@ ctx_used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
 ctx_info=""
 if [ -n "$ctx_used" ]; then
   ctx_int=$(printf '%.0f' "$ctx_used")
-  # color escalates: green <40, yellow 40-69, red >=70
+  # color escalates: grey <40, dark amber 40-69, dark red >=70 (darker variants of the quota palette)
   if [ "$ctx_int" -ge 70 ]; then
-    ctxcolor=203
+    ctxcolor=124
   elif [ "$ctx_int" -ge 40 ]; then
-    ctxcolor=221
+    ctxcolor=136
   else
-    ctxcolor=151
+    ctxcolor=251
   fi
   ctx_info="\033[38;5;${ctxcolor}mContext ${ctx_int}%\033[0m"
 fi
@@ -113,16 +113,16 @@ fi
 output_style=$(echo "$input" | jq -r '.output_style.name // ""')
 style_info=""
 if [ -n "$output_style" ] && [ "$output_style" != "default" ]; then
-  style_info="\033[38;5;180m${output_style}\033[0m"
+  style_info="\033[38;5;182m${output_style}\033[0m"
 fi
 
 # Model info (with effort level, if present)
 model_info=""
 if [ -n "$model" ]; then
   if [ -n "$effort" ]; then
-    model_info="\033[38;5;230m${model} ${effort}\033[0m"
+    model_info="\033[38;5;223m${model} ${effort}\033[0m"
   else
-    model_info="\033[38;5;230m${model}\033[0m"
+    model_info="\033[38;5;223m${model}\033[0m"
   fi
 fi
 
