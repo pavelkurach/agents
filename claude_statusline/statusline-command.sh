@@ -61,7 +61,7 @@ if [ -n "$quota_5h" ]; then
   elif [ "$quota_int" -ge 50 ]; then
     qcolor=179
   else
-    qcolor=251
+    qcolor=249
   fi
   reset_str=$(format_reset "$quota_5h_reset")
   [ -n "$reset_str" ] && reset_str=" (${reset_str})"
@@ -80,7 +80,7 @@ if [ -n "$quota_7d" ]; then
   elif [ "$quota_7d_int" -ge 50 ]; then
     q7dcolor=179
   else
-    q7dcolor=251
+    q7dcolor=249
   fi
   reset_str=$(format_reset_absolute "$quota_7d_reset")
   [ -n "$reset_str" ] && reset_str=" (${reset_str})"
@@ -104,7 +104,7 @@ if [ -n "$ctx_used" ]; then
   elif [ "$ctx_int" -ge 40 ]; then
     ctxcolor=136
   else
-    ctxcolor=251
+    ctxcolor=249
   fi
   ctx_info="\033[38;5;${ctxcolor}mContext ${ctx_int}%\033[0m"
 fi
