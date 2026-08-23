@@ -43,6 +43,7 @@
 ## Subagents
 
 - **Checkpointing.** For every subagent, define a task-local checkpoint that records completed work, remaining work, and restart instructions. Require the subagent to update it after each completed unit of work so another agent can resume without repeating completed work.
+- **Model selection.** Select the most token-efficient model and reasoning effort that preserves quality and accuracy: use weaker models at lower effort for simple mechanical work, and stronger models at higher effort for complex or judgment-heavy work.
 
 ## Superpowers
 
