@@ -1,0 +1,4 @@
+target/
+# revy-plan/serve take an fs4 advisory lock on a `<plan>.json.lock` sibling; a
+# test run or a `status`/`serve` against a fixture leaves them behind.
+*.json.lock

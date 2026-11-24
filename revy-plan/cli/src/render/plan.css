@@ -1,0 +1,836 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fbfbfa;
+  --paper: #fff;
+  --ink: #1a1a18;
+  --muted: #6b6b66;
+  --line: #e6e4df;
+  --rule: #f0eeea;
+  --accent: #3b5bdb;
+  /* `FP2-HTML-3`: `.loc-query` (`endpoint`) needs a background paired with
+     `--accent` — render.py's own `--c-query`/`--c-query-bg` (teal) has no
+     plan.css analogue (`FP2-HTML-2` already mapped `--c-query`'s *text*
+     colour to `--accent`, for `layers`' 3rd tier), and reusing an existing
+     `-bg` token (e.g. `--reference-bg`) would collide `.loc-query` into the
+     same colour as `.loc-header`, defeating render.py's own stated intent
+     that a reader tell param locations apart by colour alone
+     (`render.py:1267-1269`). A new, minimal token, following the same
+     light-tint/dark-shade shape every other colour pair here already uses. */
+  --accent-bg: #eef1fd;
+  --pass: #18794e;
+  --pass-bg: #f2fbf6;
+  --error: #b42318;
+  --error-bg: #fff5f4;
+  --warning: #b54708;
+  --warning-bg: #fffaf5;
+  --reference: #175cd3;
+  --reference-bg: #f7faff;
+  /* `FP2-HTML-2`: render.py's `--c-body`/`--c-body-bg` (and the literal
+     `#067647` a few of its rules hardcode outside any var, e.g.
+     `.vf-box.terminal`/`.chip.new`) map here — the green "added/new/
+     terminal" semantic, distinct from `--pass` above (the SVG-era `dg-kind-
+     new` token every other, still-SVG diagram kind keeps using). */
+  --new: #067647;
+  --new-bg: #f2fbf6;
+  --context: #6941c6;
+  --context-bg: #f9f5ff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #201e1b;
+    --paper: #2a2824;
+    --ink: #eceae4;
+    --muted: #9a978e;
+    --line: #3a3832;
+    --rule: #302e29;
+    --accent: #8da2fb;
+    --accent-bg: #1b2142;
+    --pass: #75d9a7;
+    --pass-bg: #10251b;
+    --error: #fda29b;
+    --error-bg: #2a1514;
+    --warning: #f7b27a;
+    --warning-bg: #211a12;
+    --reference: #84adff;
+    --reference-bg: #141a26;
+    --new: #6ce9a6;
+    --new-bg: #10251b;
+    --context: #bdb4fe;
+    --context-bg: #211b31;
+  }
+}
+
+* { box-sizing: border-box; }
+html { overflow-x: hidden; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.7 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+main { width: 100%; margin: 0 auto; padding: 4rem clamp(1rem, 4vw, 3rem) 6rem; }
+
+/* render.py's shell: elements centre themselves in a readable ~54rem measure
+   (or keep the section's full width for tables/code/diagrams) — `main` stays
+   full width, so this is not a narrower `main`, which would just move the
+   "left half" bug into a narrower box. */
+h1 { margin: 0 0 2.5rem; font-size: 2.4rem; line-height: 1.1; letter-spacing: -.025em; font-weight: 700; }
+h2 { margin: 0 0 1rem; color: var(--muted); font-size: .78rem; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; }
+h3 { margin: 1.75rem 0 .5rem; font-size: 1.05rem; font-weight: 650; }
+p, li { margin: .7rem 0; overflow-wrap: anywhere; }
+p:first-child { margin-top: 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+code { font: .87em ui-monospace, SFMono-Regular, Menlo, monospace; }
+p code, li code, td code, dd code { background: var(--rule); padding: .12em .38em; border-radius: 4px; }
+
+.eyebrow { margin: 0 0 .75rem; color: var(--accent); font-size: .75rem; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+.lead { margin: 0 0 1.5rem; font-size: 1.1rem; line-height: 1.55; color: var(--ink); }
+.page-header { max-width: 54rem; margin: 0 auto 3rem; }
+
+/* Behaviour: when the plan authors flow/sequence/state figures (a current-flow
+   and a target-flow), they head the change; the current/target prose is always
+   fully visible full-width directly below — behaviour is never folded away. With
+   no figure, the prose stands alone. A figure is never invented from the prose. */
+.behavior-figure { margin: 1.25rem auto 1rem; }
+.behavior-prose { margin-top: 1rem; }
+
+.section { margin: 0 0 2.25rem; padding: 0 0 2.25rem; border-bottom: 1px solid var(--rule); }
+.section:last-child { border-bottom: 0; }
+:target { scroll-margin-top: 2rem; }
+:target > h2 { color: var(--accent); }
+
+/* Every section heading and prose block shares one centred measure; a table,
+   a code block or a diagram figure keeps the section's full width instead —
+   the same split render.py draws between `.body > table/.d/pre.code/...`
+   (full width) and everything else (the 54rem measure). */
+.section > h2, .section > h3, .section > p, .section > ul, .section > ol, .section > dl,
+.section > div[data-block] {
+  max-width: 54rem; margin-left: auto; margin-right: auto;
+}
+/* Section titles centre over their content — a centred diagram or table reads
+   as belonging to a centred heading, not one anchored at the column's left. */
+.section > h2, .section > h3 { text-align: center; }
+.section > table {
+  width: 100%; max-width: 100%; margin-left: auto; margin-right: auto;
+}
+/* A code excerpt shares the prose measure and centres, so a long unwrapped
+   source line wraps within the text column instead of sprawling full width. */
+.section > figure.code {
+  width: fit-content; max-width: 54rem; margin-left: auto; margin-right: auto;
+}
+/* A folded section's content sits one level deeper — inside `.body` — than an
+   open section's does, so the direct-child rules above (`.section > ...`)
+   never reach it (deliberately: `summary h2` below must not centre). Mirrors
+   the same centred measure one level down for the prose/list elements a
+   folded section actually uses; a folded `table` (none currently) already
+   gets `width: 100%` from the bare `table` rule below regardless of depth. */
+details.secondary .body > p, details.secondary .body > ul, details.secondary .body > ol,
+details.secondary .body > dl {
+  max-width: 54rem; margin-left: auto; margin-right: auto;
+}
+
+/* Auxiliary/reference sections (Evidence limitations, Unresolved facts and
+   remedies, Risk-selected reviews, Advisory findings, Discussion) fold under
+   one "Reference" rail after every primary section — read-on-demand
+   supporting material, not the plan's decision-relevant narrative. Ported
+   from the oracle's `render_section`/`SECONDARY` fold (render.py:1025-1061,
+   :1194-1200): a `<details class="section secondary">` with the heading in
+   its `<summary>`, closed by default. `summary h2` overrides the base `h2`
+   layout for inline use next to the ▸/▾ toggle glyph — it is never reached by
+   `.section > h2`'s centred treatment above, since that rule's `>` combinator
+   only matches an `h2` that is a *direct* child of `.section`, and this `h2`
+   is a child of `<summary>` instead. */
+details.secondary { border-top: 1px solid var(--rule); padding: .9rem 0; }
+details.secondary > summary { cursor: pointer; list-style: none; }
+details.secondary > summary h2 { display: inline; margin: 0; }
+details.secondary > summary::before { content: "▸ "; color: var(--muted); }
+details.secondary[open] > summary::before { content: "▾ "; }
+details.secondary .body { padding-top: .75rem; }
+
+/* The "Reference" rail label grouping every folded section — an understated
+   group heading, not a section heading: it keeps the base `h2` rule's muted,
+   uppercase treatment but stays left-aligned (it is not a `.section > h2`, so
+   that rule's centring never applies here either). */
+.rail { margin: 3.5rem 0 1.5rem; }
+
+dl { margin: .7rem 0; }
+dt { margin-top: .9rem; color: var(--reference); font-size: 1rem; font-weight: 700; }
+dd { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+
+figcaption { margin: 0 0 .65rem; color: var(--muted); font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-align: center; text-transform: uppercase; }
+
+/* A real table: cells wrap and columns keep the widths the delivery
+   section's colgroups give them, because a plan is read, not scrolled
+   sideways. */
+table { width: 100%; min-width: 38rem; table-layout: fixed; border-collapse: collapse; font-size: .9rem; }
+th, td { padding: .6rem .8rem; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th { color: var(--muted); font-size: .75rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--line); }
+tbody tr:last-child td { border-bottom: 0; }
+
+/* Verification necessity (A5): a colour/weight distinction at a glance, not
+   an alarm — required draws the eye with the accent colour, optional stays
+   muted. */
+.nec-required { color: var(--accent); font-weight: 600; }
+.nec-optional { color: var(--muted); }
+
+/* State/outcome pills — a colour+background pill on the Impact "State" and
+   Verification "Outcome" cells, matching the .req/.tre-b/.mr-tag pill idiom
+   already used elsewhere in this file. `.pill` is the shared shape; each
+   state/outcome class supplies only colour + background, so a future state
+   is one two-line rule, not a new shape (same split `.loc`/`.loc-path` and
+   `.st`/`.st-2xx` already use). */
+.pill { display: inline-block; font-size: .72rem; font-weight: 650;
+  letter-spacing: .03em; text-transform: uppercase; border-radius: 999px;
+  padding: .15rem .55rem; }
+
+/* Impact areas: affected draws the eye (same accent + rationale as
+   `.nec-required`); unaffected is a confirmed-safe verdict, same weight as
+   a passed verification; uncertain is the one state needing the reader's
+   attention, so it takes the warning token this file already uses for
+   "flagged, needs resolution" (`.ep-warn`, `.lye.none`, `.bg-risk`);
+   not_applicable is inert and recedes, reusing `.mr-run`'s muted-on-`--rule`
+   treatment. */
+.imp-affected { color: var(--accent); background: var(--accent-bg); }
+.imp-unaffected { color: var(--pass); background: var(--pass-bg); }
+.imp-uncertain { color: var(--warning); background: var(--warning-bg); }
+.imp-na { color: var(--muted); background: var(--rule); }
+
+/* Affected shape: a second pill beside an `affected` verdict. Behavioral is the
+   risk-bearing case and takes the warning colour so the eye lands on it; the
+   mechanical/additive/scoped/in-store shapes recede to the muted structural
+   marker treatment, separating the risk-bearing affected rows from the rest. */
+.shape-behavioral { color: var(--warning); background: var(--warning-bg); }
+.shape-plain { color: var(--muted); background: var(--rule); }
+
+/* Blast-radius coverage strip: a wrap of chips above the impact table, one per
+   lane. A covered lane reads in the pass colour with its subjects; a lane
+   explicitly set aside recedes to muted with its reason, so the whole blast
+   surface and every deliberate gap are visible before the table of specifics. */
+.coverage { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 auto 1rem; max-width: 54rem; }
+.cov { display: inline-flex; align-items: baseline; gap: .35rem; padding: .2rem .55rem; border-radius: .4rem; font-size: .8rem; border: 1px solid var(--line); }
+.cov-yes { background: var(--pass-bg); border-color: var(--pass-bg); }
+.cov-no { background: var(--rule); }
+.cov-mark { font-weight: 700; }
+.cov-yes .cov-mark { color: var(--pass); }
+.cov-no .cov-mark { color: var(--muted); }
+.cov-lane { font-weight: 650; text-transform: uppercase; letter-spacing: .03em; font-size: .68rem; }
+.cov-yes .cov-lane { color: var(--pass); }
+.cov-no .cov-lane { color: var(--muted); }
+.cov-detail { color: var(--ink); }
+.cov-no .cov-detail { color: var(--muted); }
+
+/* Verification outcome: passed/failed mirror pass/error verbatim (as
+   `.tre-added`/`.tre-removed` already do); not run is inert, same
+   muted-on-`--rule` treatment as `.imp-na`/`.mr-run`. */
+.vout-pass { color: var(--pass); background: var(--pass-bg); }
+.vout-fail { color: var(--error); background: var(--error-bg); }
+/* Planned: a declared future check, not a problem — the neutral accent, not the
+   error red a stubbed "failed" placeholder used to show. */
+.vout-planned { color: var(--accent); background: var(--accent-bg); }
+.vout-notrun { color: var(--muted); background: var(--rule); }
+
+/* Decision owner: a user-owned decision draws the eye (it may still need the
+   user's attention), same accent as `.imp-affected`; a planner-owned one is
+   informational, taking the reference token's structural-marker family. */
+.dec-user { color: var(--accent); background: var(--accent-bg); }
+.dec-planner { color: var(--reference); background: var(--reference-bg); }
+.decisions > li { margin-bottom: .55rem; }
+
+/* Considered-and-rejected alternatives: a muted sub-block set off by a rule.
+   The "Considered and rejected" heading already carries the rejection, so the
+   alternative reads as ordinary (bolded) text on its own line with its reason
+   muted below — no strikethrough, which reads as deleted rather than declined. */
+.ruled-out { margin: .35rem 0 .1rem; padding-left: .9rem; border-left: 2px solid var(--line); }
+.ruled-out-label { display: block; margin-bottom: .15rem; color: var(--muted); font-size: .7rem; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; }
+.ruled-out ul { margin: 0; list-style: none; padding-left: 0; }
+.ro-item { margin: .35rem 0; }
+.ro-alt { display: block; font-weight: 600; color: var(--ink); }
+.ro-why { display: block; color: var(--muted); }
+
+/* Lead-with-the-statement list items (requirements, acceptance criteria, merge
+   requests, decisions, unresolved facts, accepted findings). The statement is
+   the bold headline; the slug id and its metadata drop to a muted caption below,
+   so a reader scans the statements and never a column of slugs. */
+.lead-list { list-style: none; padding-left: 0; }
+.lead-list > li { margin: 0 0 1.1rem; }
+.item-lead { margin: 0 0 .15rem; font-weight: 600; }
+.item-lead strong { font-weight: 700; }
+.item-body { margin: 0 0 .2rem; }
+.item-cap { display: block; margin: 0 0 .1rem; color: var(--muted); font-size: .78rem; }
+.item-cap code { background: none; padding: 0; }
+.consequences { margin: .1rem 0 .3rem; color: var(--muted); }
+.consequences li { margin: .1rem 0; }
+
+/* Process/evidence markers (capability strategy, risk-selected review kind)
+   — an outlined chip, not a filled pill, so this metadata reads at a
+   lighter visual weight than a verdict pill; the reference token ties it to
+   the same "structural marker" family as `.loc-header`/`.tre-modified`. */
+.dg-chip.ref { border-color: var(--reference); color: var(--reference); }
+
+/* Code blocks stay on a fixed dark surface in both page colour schemes —
+   syntect's bundled `base16-ocean.dark` theme sets light text, which a light
+   page palette would swallow against the page's own paper colour. */
+figure.code { margin: 1rem 0; }
+figure.code pre.code {
+  margin: 0; padding: 1rem 1.1rem; border: 1px solid var(--line); border-radius: 8px;
+  background: #22262d; color: #c0c5ce; font-size: .85rem; line-height: 1.6;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+figure.code pre.code code { background: none; padding: 0; }
+figure.code figcaption { margin: .65rem 0 0; }
+
+/* Review comments (render.py `--serve`): an open comment renders inline as a
+   blockquote under its block, a resolved one in the Discussion section. Matches
+   render.py's `blockquote` — an accent left-border in muted text. */
+.revy-comment { max-width: 54rem; margin: .35rem auto 1rem; padding: .2rem 0 .2rem 1rem; border-left: 3px solid var(--accent); color: var(--muted); }
+.disc { max-width: 54rem; margin: 0 auto 1rem; }
+.disc-src { font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.disc .revy-comment { margin: .2rem 0 0; }
+
+/* --- Diagram figures (revy:*, R2) ----------------------------------------------- */
+
+.dg-figure { max-width: 74rem; margin: 0 auto 1.5rem; }
+
+/* A tree, dag, or stack call-flow whose content is narrower than the figure
+   centres as a block (its rows/cards stay left-aligned within it) rather than
+   leaning against the wide figure's left edge — matching `.d.trace`'s
+   shrink-to-fit centring. `.stack` carries no `.d` prefix (see the Stack
+   drawer note below), so it is named explicitly here. */
+.d.tree, .d.dag, .stack { width: fit-content; max-width: 100%; margin-inline: auto; }
+
+/* Inline chip/glyph primitives shared by the HTML drawers (§4.8) — the SVG
+   node/edge/kind rules are gone with the last SVG canvas (the MR-DAG now
+   renders as `dag` HTML). */
+.dg-chip { display: inline-flex; align-items: center; gap: .3rem; padding: .1rem .5rem; border: 1px solid var(--line); border-radius: 999px; font-size: .78rem; }
+.dg-icon { flex: none; color: inherit; }
+
+/* Layers/Dag shared edges list (§1.1/§1.6) — as of `FP2-HTML-2`, `dag`-only:
+   `layers` moved to its own `.ly-edges`/`.lye-*` below (render.py's own
+   markup); `dag`'s edges list is unchanged, out of that port's scope (see
+   `graph.rs`'s `dag_markup` doc comment). */
+.dg-crossings { display: grid; margin: .75rem 0 0; padding: 0; gap: .4rem; list-style: none; }
+.dg-crossing { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: .84rem; }
+.dg-crossing-glyph { color: var(--muted); }
+.dg-crossing-absent { text-decoration: line-through; opacity: .6; }
+.dg-crossing-label, .dg-crossing-note { color: var(--muted); }
+
+/* Layers (§1.1, FP2-HTML-2) — ported verbatim from render.py's `d_layers`/CSS
+   (render.py:413-441, :1296-1303, :1325-1351), not an SVG canvas: `.ly` is a
+   flex row per tier (a `--t` custom property cycling render.py's own
+   6-colour tier palette), `.ly-down` an arrow connector between tiers,
+   `.ly-edges` a 4-column CSS grid (`display:contents` on each `.lye` row) so
+   `from`/`relation`/`to`/`note` line up down the page — see
+   `render/diagram/graph.rs`'s `layers_markup` doc comment. Colour vars
+   adapted as `dag`/`seq` above: `--c-header`/`--c-path` → `--reference`/
+   `--context`; `--c-body`'s literal `#067647` → `--new` (see this file's own
+   `--new` note at its `:root` definition, top of file); render.py's
+   unlabelled 3rd tier colour (`--c-query`, teal) has no plan.css analogue
+   and maps to `--accent` instead; the raw `#b54708` 4th tier colour is
+   `--warning` verbatim (same hex `.dg-kind-warn` above already uses).
+   render.py itself declares `.ly { border-left:3px solid var(--tier); }`
+   (`:1296`) *before* a second, later `.ly { border:1px solid var(--line);
+   ...}` (`:1326-1327`, same specificity) — the `border` shorthand in the
+   later rule wins for every side including left, so that tier-coloured
+   border never actually renders (confirmed against the oracle screenshot,
+   `.superpowers/sdd/.../fp2html2-report.md`); only `.ly-name`'s own
+   `color:var(--tier)` (a more specific `.ly .ly-name` selector, `:1303`,
+   unaffected by the collision) does. Ported as one clean rule with the
+   winning declarations only, `--tier` still feeding `.ly-name`'s colour. */
+.layers { display: flex; flex-direction: column; gap: .5rem; }
+.ly { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; justify-content: center;
+  border: 1px solid var(--line); border-radius: 8px; padding: .7rem .9rem; background: var(--paper); }
+.ly[style*="--t:0"] { --tier: var(--reference); }
+.ly[style*="--t:1"] { --tier: var(--context); }
+.ly[style*="--t:2"] { --tier: var(--accent); }
+.ly[style*="--t:3"] { --tier: var(--new); }
+.ly[style*="--t:4"] { --tier: var(--warning); }
+.ly[style*="--t:5"] { --tier: var(--muted); }
+.ly-name { min-width: 7rem; font-size: .72rem; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--tier); font-weight: 650; }
+.ly-nodes { display: flex; gap: .45rem; flex-wrap: wrap; justify-content: center; }
+.ly-down { height: 1.1rem; position: relative; }
+.ly-down::before { content: ""; position: absolute; left: 50%; top: 0; bottom: .3rem;
+  border-left: 1px solid var(--line); }
+.ly-down::after { content: "▼"; position: absolute; left: 50%; bottom: -.15rem;
+  transform: translateX(-50%); color: var(--line); font-size: .6rem; }
+.ly-edges { display: grid; grid-template-columns: max-content max-content max-content 1fr;
+  gap: .35rem .7rem; align-items: baseline; margin: 1.1rem 0 0; max-width: 60rem; }
+.lye { display: contents; }
+.lye-a, .lye-b { justify-self: start; }
+.lye-r { font-size: .68rem; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap; }
+.lye-r::after { content: " ▶"; }
+.lye-n { font-size: .78rem; color: var(--muted); }
+.lye.none .lye-r { color: var(--warning); }
+.lye.none .lye-r::after { content: " ✕"; }
+.lye.none .chip { opacity: .55; border-style: dashed; }
+.chip { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 6px;
+  padding: .25rem .6rem; background: var(--paper); font: .85rem ui-monospace, monospace; }
+.chip .dg-icon { margin-right: .3em; }
+.chip.external { border-style: dashed; color: var(--muted); }
+.chip.new { border-color: var(--new); color: var(--new); }
+
+/* Flow (§1.2, FP2-HTML-2) — ported verbatim from render.py's `d_flow`/CSS
+   (render.py:278-320, :1217-1221, :1353-1374), not an SVG canvas: `.flow` is
+   a flex-wrap row of `.fl-node` boxes for the pipeline shape, `.vflow` a
+   flex column of `.vf-step`s (a `.vf-box` plus its optional `.vf-outs`
+   early-exit list) for the path-with-exits shape — see
+   `render/diagram/graph.rs`'s `flow_markup` doc comment. Colour vars:
+   `.vf-box.terminal`'s literal `#067647` → `--new` (same green this file's
+   `--new` token now reserves, see `Layers` above); `.vf-out`'s literal
+   `#b42318`/`#b54708` → `--error`/`--warning` (exact hex matches already
+   used elsewhere in this file). */
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; justify-content: center; }
+.fl-node { flex: 1 1 8rem; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--paper); padding: .7rem .85rem; font-size: .9rem;
+  display: flex; flex-direction: column; gap: .25rem; }
+.fl-arrow { align-self: center; color: var(--muted); font-size: .75rem; }
+.vflow { display: flex; flex-direction: column; align-items: flex-start; }
+.vf-step { display: flex; align-items: stretch; gap: 1.25rem; }
+.vf-box { flex: 0 0 20rem; max-width: 20rem; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--paper); padding: .65rem .9rem; font-size: .92rem; }
+.vf-box.terminal { border-color: var(--new); }
+.vf-box .note { font-size: .8rem; margin-top: .15rem; }
+.vf-down { height: 1.1rem; width: 20rem; position: relative; flex: 0 0 auto; }
+.vf-down::before { content: ""; position: absolute; left: 1.5rem; top: 0; bottom: .25rem;
+  border-left: 1px solid var(--line); }
+.vf-down::after { content: "▼"; position: absolute; left: 1.5rem;
+  transform: translateX(-50%); bottom: -.2rem; color: var(--line); font-size: .6rem; }
+.vf-outs { display: flex; flex-direction: column; gap: .35rem; justify-content: center; max-width: 26rem; }
+.vf-out { display: flex; align-items: baseline; gap: .5rem; font-size: .82rem;
+  position: relative; padding-left: 1.4rem; flex-wrap: wrap; }
+.vf-out > .dg-icon { position: absolute; left: 0; top: .28em; }
+.vf-out.error > .dg-icon { color: var(--error); }
+.vf-out.exit > .dg-icon { color: var(--warning); }
+.vf-when { color: var(--muted); font: .78rem ui-monospace, monospace; }
+.vf-when::after { content: " ·"; }
+.vf-out.error .vf-then { color: var(--error); font-weight: 600; }
+.vf-out.exit .vf-then { color: var(--warning); font-weight: 600; }
+
+/* States (§1.7, FP2-HTML-2) — ported verbatim from render.py's `d_states`/CSS
+   (render.py:593-620, :1376-1392), not an SVG canvas: `.stt-set` a flex-wrap
+   row of state cards, `.tr-set` a flex column of transition rows — see
+   `render/diagram/graph.rs`'s `states_markup` doc comment. Colour vars:
+   `--c-body`/`--c-req`/`--c-path` → `--new`/`--error`/`--context` (render.py
+   itself colours a `new` state/transition with its own violet "path" var,
+   not green — preserved verbatim, an inconsistency in render.py's own
+   source, not a mapping error here). */
+.stt-set { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1.5rem; }
+.stt { border: 1px solid var(--line); border-left-width: 3px; border-radius: 8px;
+  padding: .65rem 1rem; background: var(--paper); display: flex; flex-direction: column; }
+.stt-n { font: .88rem ui-monospace, monospace; font-weight: 650; }
+.stt-initial { border-left-color: var(--new); }
+.stt-terminal { border-left-color: var(--muted); }
+.stt-error { border-left-color: var(--error); }
+.stt-new { border-left-color: var(--context); }
+.stt-normal { border-left-color: var(--line); }
+.tr-set { display: flex; flex-direction: column; gap: .55rem; }
+.tr-row { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
+  font: .85rem ui-monospace, monospace; }
+.tr-f, .tr-t { border: 1px solid var(--line); border-radius: 5px; padding: .1rem .45rem; }
+.tr-on { color: var(--reference); font-size: .8rem; }
+.tr-a { color: var(--muted); font-size: .7rem; }
+.tr-error { border-color: var(--error); color: var(--error); }
+.tr-new { border-color: var(--context); color: var(--context); }
+/* A transition's consequence note takes its own full-width line and centres,
+   aligned with the ▶ marker, instead of hanging at the left when the row wraps. */
+.tr-row .note { flex-basis: 100%; text-align: center; }
+
+/* Timeline (§1.9, FP2-HTML-2) — ported verbatim from render.py's
+   `d_timeline`/CSS (render.py:793-809, :1463-1474), not an SVG canvas: a
+   flex column of `.tl-step` rows, a `::before` rail segment linking every
+   step but the last — see `render/diagram/graph.rs`'s `timeline_markup` doc
+   comment. Colour vars: `--c-header`/`--c-req`/`--c-path` →
+   `--reference`/`--error`/`--context` (same mapping `dag`'s `.wv-dot` above
+   already uses for `--c-header`). */
+.timeline { display: flex; flex-direction: column; }
+.tl-step { display: flex; gap: .85rem; padding: 0 0 1.1rem; position: relative; }
+.tl-step:not(:last-child)::before { content: ""; position: absolute; left: .31rem;
+  top: .9rem; bottom: 0; border-left: 1px solid var(--line); }
+.tl-dot { width: .65rem; height: .65rem; border-radius: 50%; margin-top: .42rem;
+  border: 2px solid var(--reference); background: var(--paper); flex: none; }
+.tl-gate .tl-dot { border-color: var(--error); }
+.tl-oneway .tl-dot { border-color: var(--context); background: var(--context); }
+.tl-body { display: flex; flex-direction: column; gap: .15rem; }
+.tl-n { font-weight: 600; font-size: .95rem; }
+.tl-w { font: .72rem ui-monospace, monospace; color: var(--reference); }
+.tl-rb { font-size: .8rem; color: var(--muted); }
+.tl-rb .item-lead { font-size: .82rem; }
+.tl-rb .item-cap { font-size: .72rem; }
+.tl-clear { font-size: .8rem; color: var(--pass); }
+
+/* The folded review timeline: its digest sits beside the "Review timeline"
+   heading in the summary, carrying the all-clear lane/consumer counts the
+   expanded body no longer spells out line by line. */
+.timeline-fold > summary .tl-digest { color: var(--muted); font-size: .8rem; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: .5rem; }
+
+/* Seq (§1.3, FP2-HTML) — ported verbatim from render.py's `d_seq`/CSS
+   (render.py:323-372, :1223-1249, :1431-1440), not an SVG canvas: `.d`/`.seq`
+   are the shared/own wrapper, `.sq-*` a CSS grid of actor columns plus
+   percentage-positioned message/span divs the browser measures and wraps
+   itself — see `render/diagram/seq.rs`'s module doc comment. Colour vars
+   adapted to plan.css's own tokens: render.py's `--c-path`/`--c-path-bg` →
+   `--context`/`--context-bg`, `--c-req`/`--c-req-bg` → `--error`/`--error-bg`
+   (same mapping `.dg-kind-oneway`/`.dg-kind-error` above already use). */
+.d { margin: 1.25rem 0; }
+.seq { border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
+  padding: 1rem .5rem 1.25rem; overflow-x: auto; }
+.sq-actors { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 0; }
+.sq-actor { text-align: center; font: .82rem/1.3 ui-monospace, monospace;
+  font-weight: 650; padding: .4rem .25rem .7rem; }
+.sq-body { position: relative; min-height: 2rem; }
+.sq-life { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--line); }
+.sq-row { position: relative; height: 3.3rem; }
+.sq-msg { position: absolute; top: .65rem; height: 0; border-top: 1.5px solid var(--accent); }
+.sq-msg::after { content: "▶"; position: absolute; right: -.1rem; top: -.62rem;
+  color: var(--accent); font-size: .7rem; }
+.sq-msg.back { border-top-style: dashed; }
+.sq-msg.back::after { content: "◀"; right: auto; left: -.1rem; }
+.sq-msg.return { border-top-style: dotted; }
+.sq-msg.self { border-top-style: solid; }
+.sq-msg.error { border-top-color: var(--error); }
+.sq-msg.error::after { content: "✕"; color: var(--error); }
+.sq-msg.error .sq-label { color: var(--error); }
+.sq-anote { display: block; font-weight: 400; font-size: .7rem; color: var(--muted);
+  white-space: normal; }
+.sq-label { position: absolute; left: 50%; transform: translate(-50%, -115%);
+  white-space: nowrap; font: .78rem ui-monospace, monospace; background: var(--paper);
+  padding: 0 .4rem; }
+.sq-note { position: absolute; right: .4rem; top: 1rem; font-size: .75rem;
+  color: var(--muted); }
+.sq-span { position: absolute; top: 0; bottom: 0;
+  left: calc((var(--a) + 0.5) * 100% / var(--n));
+  width: calc((var(--b) - var(--a)) * 100% / var(--n));
+  border: 1px dashed var(--context); border-radius: 6px;
+  background: var(--context-bg); opacity: .55; pointer-events: none; }
+.sq-span-l { position: absolute; top: -.1rem; left: 50%; transform: translateX(-50%);
+  font: .68rem ui-monospace, monospace; color: var(--context); background: var(--paper);
+  padding: 0 .35rem; white-space: nowrap; }
+.sq-lock { border-color: var(--error); background: var(--error-bg); }
+.sq-lock .sq-span-l { color: var(--error); }
+
+/* Tree (§1.10, FP2-HTML-2) — ported verbatim from render.py's `d_tree`/CSS
+   (render.py:744-768, :1442-1451), not an SVG canvas: one `.tre-row` per
+   entry, indented via a `--d` custom property (depth × 1.4rem) — see
+   `render/diagram/graph.rs`'s `tree_markup` doc comment. Colour vars:
+   `--c-body`/`--c-req`/`--c-header` → `--new`/`--error`/`--reference`. Unlike
+   the deleted `.dg-tree-note` rule, render.py never overrides a row's own
+   monospace font for its trailing note — `.note`'s shared rule (above)
+   inherits it here too, verbatim. */
+.tre-row { display: flex; align-items: baseline; gap: .5rem; padding: .18rem 0;
+  padding-left: calc(var(--d) * 1.4rem); font: .87rem ui-monospace, monospace; }
+.tre-n.tre-added { color: var(--new); }
+.tre-n.tre-removed { color: var(--error); text-decoration: line-through; }
+.tre-n.tre-modified { color: var(--reference); }
+.tre-b { font-size: .65rem; text-transform: uppercase; letter-spacing: .05em;
+  border-radius: 4px; padding: .08rem .35rem; font-weight: 700; }
+.tre-b.tre-added { background: var(--new-bg); color: var(--new); }
+.tre-b.tre-removed { background: var(--error-bg); color: var(--error); }
+.tre-b.tre-modified { background: var(--reference-bg); color: var(--reference); }
+
+/* Dag (§1.6, FP2-HTML) — ported verbatim from render.py's `d_dag`/CSS
+   (render.py:444-505, :1487-1516), not an SVG canvas: `.wv-stage` is a flex
+   band per wave, `.wv-mrs` a flex-wrap row of MR cards the browser measures
+   and wraps itself — see `render/diagram/graph.rs`'s `dag_markup` doc
+   comment. `.dg-caption`/`.dg-crossings` (below `.dag`) are unchanged: dag's
+   optional caption/edges list keeps the pre-existing `<ul>`/`<p>` markup, out
+   of this port's scope (brief §"What to change"). As of `FP2-HTML-2`,
+   `.dg-crossings` is `dag`-only — `layers` moved to its own `.ly-edges`/
+   `.lye-*` (above render.py's own markup, see `Layers/Dag shared edges list`
+   above and `graph.rs`'s `layers_markup`/`dag_markup` doc comments). Colour
+   vars adapted as `.sq-*` above: `--c-header` → `--reference` (same mapping
+   `.dg-kind-ref`/`.dg-kind-header` above already use), `--c-path`/`--c-req`
+   → `--context`/`--error`. */
+.dag { display: flex; flex-direction: column; }
+.wv-stage { display: flex; gap: .9rem; padding: 0 0 1.4rem; position: relative; }
+.wv-stage:not(:last-child)::before { content: ""; position: absolute; left: .31rem;
+  top: 1rem; bottom: 0; border-left: 1px solid var(--line); }
+.wv-dot { width: .65rem; height: .65rem; border-radius: 50%; margin-top: .5rem;
+  border: 2px solid var(--reference); background: var(--paper); flex: none; }
+.wv-body { flex: 1; min-width: 0; }
+.wv-h { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); font-weight: 650; margin-bottom: .5rem;
+  display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap; }
+.wv-par { text-transform: none; letter-spacing: 0; font-weight: 400; opacity: .75; }
+.wv-mrs { display: flex; gap: .6rem; flex-wrap: wrap; }
+.mr { flex: 1 1 16rem; border: 1px solid var(--line); border-left-width: 3px;
+  border-radius: 8px; background: var(--paper); padding: .65rem .8rem;
+  display: flex; flex-direction: column; gap: .22rem; }
+.mr-k-normal { border-left-color: var(--line); }
+.mr-k-migration { border-left-color: var(--context); }
+.mr-k-oneway { border-left-color: var(--error); }
+.mr-k-scaffolding { border-left-color: var(--muted); }
+.mr-id { font: .7rem ui-monospace, monospace; color: var(--muted);
+  text-decoration: none; border-bottom: 1px dotted var(--line); align-self: flex-start; }
+.mr-t { font-size: .9rem; }
+.mr-tags { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .15rem; }
+.mr-tag { display: inline-flex; align-items: center; gap: .3em;
+  font: .7rem ui-monospace, monospace; border-radius: 4px; padding: .15rem .45rem; }
+.mr-flag { background: var(--context-bg); color: var(--context); }
+.mr-run { background: var(--rule); color: var(--muted); }
+.wv-gate { display: flex; align-items: center; gap: .45em; margin-top: .6rem;
+  font-size: .82rem; color: var(--error); }
+.note { color: var(--muted); font-size: .92em; }
+.dg-caption { margin: .6rem 0 0; color: var(--muted); font-size: .82rem; }
+
+/* The caption line under a diagram (render.py `.d-cap`). */
+.d-cap { margin: .5rem 0 0; color: var(--muted); font-size: .85rem; }
+
+/* Layout (§1.8) — render.py `d_layout` HTML: a flex bar sized by `--g` (flex-grow = field size). */
+.lay-bar { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.lay-f { flex: var(--g) 1 0; min-width: 6.5rem; padding: .6rem .75rem; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: .15rem; }
+.lay-f:last-child { border-right: none; }
+.lay-n { font: .8rem/1.35 ui-monospace, monospace; font-weight: 650; }
+.lay-s { font: .68rem ui-monospace, monospace; color: var(--muted); }
+.lay-sep { opacity: .5; margin: 0 .1em; }
+.lay-f .note { font-size: .72rem; line-height: 1.4; }
+.lay-normal { background: var(--reference-bg); }
+.lay-new { background: var(--new-bg); }
+.lay-new .lay-n { color: var(--new); }
+.lay-reserved { background: repeating-linear-gradient(45deg, var(--rule), var(--rule) 6px, transparent 6px, transparent 12px); }
+.lay-reserved .lay-n, .lay-reserved .lay-s { color: var(--muted); }
+.lay-removed { background: var(--error-bg); }
+.lay-removed .lay-n { text-decoration: line-through; color: var(--error); }
+
+/* Budget (§1.13) — render.py `d_budget` HTML: a flex bar sized by `--w` (flex-grow = value %). */
+.bg-bar { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.bg-seg { flex: var(--w) 1 0; min-width: 6rem; padding: .55rem .7rem; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: .1rem; }
+.bg-seg:last-child { border-right: none; }
+.bg-normal { background: var(--reference-bg); }
+.bg-n { font: .78rem/1.35 ui-monospace, monospace; font-weight: 650; }
+.bg-v { font: .68rem ui-monospace, monospace; color: var(--muted); }
+.bg-slack { background: repeating-linear-gradient(45deg, var(--rule), var(--rule) 6px, transparent 6px, transparent 12px); }
+.bg-slack .bg-n { color: var(--muted); }
+.bg-risk { background: var(--error-bg); }
+.bg-risk .bg-n { color: var(--error); }
+.bg-new { background: var(--new-bg); }
+.bg-new .bg-n { color: var(--new); }
+.bg-over { margin-top: .4rem; font-size: .82rem; color: var(--error); font-weight: 600; }
+
+/* Trace (§1.12) — render.py `d_trace` HTML: the `.d.trace` container is a flex
+   column carrying `--n` (the op count), one `.tr-lane` per key, each a
+   `--n`-column grid of cells that inherits `--n` from the container. */
+/* render.py forces only layout/budget/seq to full width and centres the rest at
+   their intrinsic size (`.body` centring); trace is intrinsic — `fit-content`
+   here reproduces that so its cells stay compact rather than stretching. */
+.d.trace { display: flex; flex-direction: column; gap: .3rem; padding: .75rem 0; width: fit-content; max-width: 100%; margin-inline: auto; }
+.tr-lane { display: flex; align-items: center; gap: .6rem; }
+.tr-k { flex: 0 0 5rem; text-align: right; font: .75rem ui-monospace, monospace; color: var(--muted); }
+.tr-cells { flex: 1; display: grid; grid-template-columns: repeat(var(--n), minmax(1.15rem, 1fr)); gap: .2rem; }
+.tr-c { height: 1.35rem; border-radius: 3px; background: var(--rule); opacity: .35; }
+.tr-c.on { opacity: 1; display: flex; align-items: center; justify-content: center; font: .62rem ui-monospace, monospace; background: var(--reference-bg); color: var(--reference); }
+.tr-c.on.waste { background: var(--error-bg); color: var(--error); }
+.tr-c.on.saved { background: var(--new-bg); color: var(--new); }
+.tr-c.on.new { background: var(--context-bg); color: var(--context); }
+.tr-leg { margin-top: .4rem; padding-left: 5.6rem; display: flex; gap: .9rem; flex-wrap: wrap; font-size: .75rem; color: var(--muted); }
+.tr-l b { font-family: ui-monospace, monospace; color: var(--ink); }
+
+/* Er (§1.4, FP2-HTML-3) — render.py's `d_er` (`render.py:375-410`), ported
+   verbatim: `.er-set` a flex-wrap row of `.er-e` entity cards (a `.er-h`
+   head bar, one `.er-f` field row per field), an optional `.er-rels` column
+   of relation rows below. Unlike the deleted pre-port version, pk/fk field
+   badges are render.py's own `.bdg` span (a small pill with its own
+   background/colour, distinct from the `.chip` pill `er`'s relation
+   operands use) rather than the shared `dg-chip` primitive — see
+   `render/diagram/tables.rs`'s `field_key_badge` doc comment. CSS
+   (`:1251-1266`, `:1304-1323`) colour vars: literal `#7c3aed`
+   (`.er-e.new`/`.er-e.new .er-tag`, a violet distinct from `--c-path`'s own
+   `#7048e8`) → `--context` (nearest existing violet token — no exact
+   plan.css analogue, same "map to nearest" precedent `FP2-HTML-2` used for
+   `--c-query` → `--accent`); `.bdg.fk` → `--reference`/`--reference-bg`
+   (`--c-header` mapping); `.bdg.pk`'s literal `#fdf3d3`/`#8a6100` (amber) →
+   `--warning`/`--warning-bg` (nearest existing amber token — the mapping
+   this crate's own pre-`FP2-HTML-3` `dg-badge-pk` rule already
+   independently chose). `justify-content:center` (render.py:1593's `.flow,
+   .dag, .er-set`) is inlined directly into `.er-set`, the same technique
+   `FP2-HTML-2` used for `.flow`/`.dag`. */
+.er-set { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; }
+.er-e { border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
+  min-width: 14rem; overflow: hidden; }
+.er-e.new { border-color: var(--context); }
+.er-e.context { opacity: .72; }
+.er-h { background: var(--rule); padding: .5rem .8rem; font-weight: 650;
+  font: .85rem ui-monospace, monospace; display: flex; gap: .5rem; align-items: baseline; }
+.er-tag { margin-left: auto; font-size: .68rem; letter-spacing: .04em;
+  text-transform: uppercase; font-weight: 600; color: var(--muted); }
+.er-e.new .er-tag { color: var(--context); }
+.er-f { display: flex; gap: .6rem; align-items: baseline; padding: .35rem .8rem;
+  border-top: 1px solid var(--rule); font: .82rem ui-monospace, monospace; }
+.er-n { flex: 1; }
+.er-t { color: var(--muted); }
+.bdg { font-size: .65rem; border-radius: 4px; padding: .1rem .35rem; font-weight: 700;
+  display: inline-flex; align-items: center; }
+.bdg .dg-icon { margin-right: .3em; }
+.bdg.pk { background: var(--warning-bg); color: var(--warning); }
+.bdg.pk .dg-icon { stroke-width: 1.6; }
+.bdg.fk { background: var(--reference-bg); color: var(--reference); }
+.er-rels { display: flex; flex-direction: column; gap: .4rem; margin-top: 1rem; }
+.er-r { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  color: var(--muted); font-size: .85rem; }
+.er-k { font: .72rem ui-monospace, monospace; color: var(--muted); }
+
+/* Endpoint (§1.5, FP2-HTML-3) — render.py's `d_endpoint`
+   (`render.py:508-590`), ported verbatim: `.ep-h` a header bar (verb badge,
+   path, optional auth chip pushed right via `margin-left:auto`), up to two
+   `.ep-t` tables (params, responses), an optional `.ep-req` request-body
+   block and `.ep-warn` incompleteness note. Table headers/labels/warning
+   prose are render.py's own lowercase text (`param`/`in`/`type`/`note`,
+   `status`/`meaning`/`body`, `request body`), not this crate's pre-port
+   Title Case. CSS (`:1285-1295` loc/req/ty, `:1517-1576` ep-*) colour vars:
+   `.v-GET`/`.st-2xx`/etc. reuse the exact same hex as this file's own
+   `--c-*` vars (confirmed exact matches — e.g. `.v-GET`'s `#0b7285` is
+   `--c-query` verbatim) even though render.py's own CSS spells them as
+   literals rather than `var()`, so the established mapping table applies
+   unchanged: `--c-query`→`--accent`, `--c-body`→`--new`, `--c-header`→
+   `--reference`, `--c-path`→`--context`, `--c-req`→`--error`. `--accent-bg`
+   (new token, this file's `:root`, see its own comment there) backs
+   `.loc-query`'s background need. */
+.ep { border: 1px solid var(--line); border-radius: 10px; background: var(--paper); overflow: hidden; }
+.ep-h { display: flex; align-items: center; gap: .7rem; padding: .75rem 1rem;
+  border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.verb { font: .72rem ui-monospace, monospace; font-weight: 700; border-radius: 5px;
+  padding: .2rem .5rem; color: #fff; }
+.v-GET { background: var(--accent); }
+.v-POST { background: var(--new); }
+.v-PUT, .v-PATCH { background: var(--warning); }
+.v-DELETE { background: var(--error); }
+.ep-p { font-size: .95rem; }
+.ep-auth { margin-left: auto; font-size: .75rem; color: var(--muted); }
+.ep-auth .dg-icon { margin-right: .3em; }
+.ep-auth.open { color: var(--warning); }
+.ep-s { padding: .6rem 1rem; color: var(--muted); font-size: .9rem; border-bottom: 1px solid var(--rule); }
+table.ep-t { margin: 0; font-size: .85rem; }
+table.ep-t th, table.ep-t td { padding: .45rem 1rem; }
+.loc { font: .7rem ui-monospace, monospace; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; border-radius: 4px; padding: .15rem .45rem;
+  background: var(--rule); color: var(--muted); }
+.loc-path { background: var(--context-bg); color: var(--context); }
+.loc-query { background: var(--accent-bg); color: var(--accent); }
+.loc-header { background: var(--reference-bg); color: var(--reference); }
+.loc-body { background: var(--new-bg); color: var(--new); }
+.req { font: .68rem ui-monospace, monospace; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--error); background: var(--error-bg);
+  border-radius: 4px; padding: .12rem .4rem; }
+code.ty { background: none; border: none; padding: 0; color: var(--muted); }
+.st { font: .72rem ui-monospace, monospace; font-weight: 700; border-radius: 4px; padding: .15rem .4rem; }
+.st-2xx { background: var(--new-bg); color: var(--new); }
+.st-3xx { background: var(--rule); color: var(--muted); }
+.st-4xx { background: var(--warning-bg); color: var(--warning); }
+.st-5xx { background: var(--error-bg); color: var(--error); }
+.ep-k { margin-left: .4rem; font-size: .62rem; letter-spacing: .04em;
+  text-transform: uppercase; font-weight: 600; color: var(--context); }
+.ep-t tr.new td, .ep-t tr.changed td { background: color-mix(in srgb, var(--context) 7%, transparent); }
+.ep-ct { display: inline-block; font: .7rem ui-monospace, monospace; color: var(--muted); }
+.ep-ex { margin: .25rem 0 0; padding: .4rem .6rem; background: var(--rule);
+  border-radius: 6px; font: .75rem/1.45 ui-monospace, monospace; white-space: pre-wrap;
+  overflow-wrap: anywhere; }
+.ep-hd { margin-top: .3rem; display: flex; flex-wrap: wrap; gap: .3rem; }
+.ep-hd code { font-size: .7rem; background: var(--rule); padding: .05rem .3rem; border-radius: 4px; }
+.ep-req { padding: .6rem 1rem; border-top: 1px solid var(--line); }
+.ep-lbl { font-size: .7rem; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: .25rem; }
+.ep-warn { display: flex; align-items: center; gap: .45em; padding: .6rem 1rem;
+  font-size: .82rem; color: var(--warning); border-top: 1px solid var(--line); background: var(--rule); }
+
+/* Matrix (§1.11, FP2-HTML-3) — render.py's `d_matrix` (`render.py:771-790`),
+   ported verbatim: `.d matrix` wraps a plain `table.mx`, one `<td class="mx-
+   {kind}">` per declared column (every cell renders one, defaulting to the
+   literal `same` token — including a column with no cell for that row at
+   all — never a bare, class-less empty `<td></td>`; see
+   `render/diagram/tables.rs`'s `matrix_cell` doc comment). CSS
+   (`:1453-1461`) colour vars: `--c-path`/`--c-body`/`--c-req` →
+   `--context`/`--new`/`--error` (established mapping); `mx-same` has no
+   rule of its own (transparent/default, matching render.py — "the cells you
+   do not mark are the argument", `presentation.md:375`). */
+table.mx { font-size: .87rem; }
+table.mx th.mx-r { text-align: left; font-weight: 600; text-transform: none;
+  letter-spacing: 0; color: var(--ink); white-space: nowrap; }
+.mx-differs { background: var(--context-bg); }
+.mx-differs code { color: var(--context); font-weight: 650; }
+.mx-new { background: var(--new-bg); }
+.mx-new code { color: var(--new); font-weight: 650; }
+.mx-risk { background: var(--error-bg); }
+.mx-risk code { color: var(--error); font-weight: 650; }
+
+/* Examples — a worked given/when/then table (`div.d examples` wrapping
+   `table.ex`), one row per WorkedExample. The row's `ex-{kind}` class tints it:
+   `boundary` reuses the warning token (an edge to watch), `error` the error
+   token (a rejected input), `wire`/unmarked stays neutral. Cell text is inline
+   Markdown, so a backticked command renders as <code>. */
+table.ex { font-size: .87rem; }
+table.ex td { vertical-align: top; overflow-wrap: anywhere; }
+tr.ex-boundary td { background: var(--warning-bg); }
+tr.ex-error td { background: var(--error-bg); }
+
+/* Compare (§1.14, FP2-HTML-3) — render.py's `d_compare`
+   (`render.py:812-830`), ported verbatim: `.compare` a flex-wrap row of
+   `.cmp-col` columns, each a `.cmp-h` head bar plus a plain `<ul>`; every
+   `<li>` always carries a `cmp-{kind}` class, defaulting to the literal
+   `normal` token (never a bare, class-less `<li>`) — see
+   `render/diagram/tables.rs`'s `compare_item` doc comment. `.cmp-c{i}` (the
+   column's 0-based index, not its content) is what colours the *second*
+   column's header green — a before/after convention baked into column
+   order, not into any authored `kind` (render.py:1485's `.cmp-c1 .cmp-h`,
+   unconditional on a 2-column compare). Colour vars: `--c-body`/`--c-req` →
+   `--new`/`--error` (established mapping). */
+.compare { display: flex; gap: 1rem; flex-wrap: wrap; align-items: stretch; }
+.cmp-col { flex: 1 1 16rem; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--paper); overflow: hidden; }
+.cmp-h { padding: .5rem .85rem; background: var(--rule); font-size: .72rem;
+  text-transform: uppercase; letter-spacing: .08em; font-weight: 650; color: var(--muted); }
+.cmp-col ul { margin: 0; padding: .6rem .85rem .8rem 1.9rem; }
+.cmp-col li { margin: .25rem 0; font-size: .9rem; }
+.cmp-add { color: var(--new); }
+.cmp-del { color: var(--error); }
+.cmp-c1 .cmp-h { color: var(--new); }
+
+/* Stack (§1.15, FP2-HTML-3) — render.py's `as_stack` is not a `DIAGRAMS`
+   entry: `revy:stack` never reaches YAML at all, `render.py:871-872`
+   special-cases the fence to call `as_stack(content)` directly on the raw
+   text, building `<div class="stack">` — no `.d` wrapper class the other 14
+   kinds share (confirmed: `.stack` is listed separately from `.d` in
+   render.py's own "diagrams keep the full page width" rule,
+   `render.py:1588-1591`). Ported verbatim (`render.py:202-231`, CSS
+   `:1172-1191`). `.stack-row[style*="--d:0"]` bolds the root frame and
+   suppresses its own rail segment (`:not([style*="--d:0"])::before`); this
+   crate's own `stack_markup` used to start numbering at depth 1 (predating
+   this port), which never produces a literal `--d:0` and so never triggered
+   either rule — every row, including the root, drew with the (wrong) thin
+   rail and without the (missing) bold weight. Fixed by starting the
+   recursion at depth 0 instead, matching render.py's own
+   `expandtabs(4)//2` numbering exactly (`render/diagram/tables.rs`'s
+   `stack_frame` doc comment). `.sym`/`.note` carry no font-family override
+   of their own (render.py never resets the row's inherited monospace font
+   for a trailing note) — the pre-port `dg-stack-note` rule's sans-serif
+   override is dropped; `.note` here is the same shared rule every other
+   drawer's trailing note already uses (this file, `Dag` section, above).
+   Colour vars: `#067647`/`#e7f6ec` (`mark-add`) → `--new`/`--new-bg`,
+   `#b42318`/`#fdecec` (`mark-del`) → `--error`/`--error-bg`,
+   `#b54708`/`#fff4e5` (`mark-chg`) → `--warning`/`--warning-bg` (same
+   established mapping every other drawer's literal hex uses); the
+   dark-mode `.mark-*` overrides (`:1188-1191`) are dropped — each
+   `--new-bg`/`--error-bg`/`--warning-bg` token already carries its own dark
+   swap at this file's `:root` block, so no per-rule override is needed. */
+.stack { margin: 1rem auto; border: 1px solid var(--line); border-radius: 8px;
+  padding: .85rem 1rem; background: var(--paper); }
+.stack-row { display: flex; align-items: baseline; gap: .55rem; padding: .2rem 0;
+  padding-left: calc(var(--d) * 1.5rem); position: relative;
+  font: .87rem/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  flex-wrap: wrap; overflow-wrap: anywhere; }
+.stack-row[style*="--d:0"] { font-weight: 650; }
+.stack-row:not([style*="--d:0"])::before { content: ""; position: absolute;
+  left: calc(var(--d) * 1.5rem - .75rem); top: 0; bottom: 0;
+  border-left: 1px solid var(--line); }
+.mark { display: inline-block; width: 1.35rem; text-align: center; border-radius: 4px;
+  font-size: .78rem; font-weight: 700; flex: none; }
+.mark-add { background: var(--new-bg); color: var(--new); }
+.mark-del { background: var(--error-bg); color: var(--error); }
+.mark-chg { background: var(--warning-bg); color: var(--warning); }
+.mark-keep { background: var(--rule); color: var(--muted); }
+.sym { color: var(--ink); }
+
+@media (max-width: 700px) {
+  main { padding: 2rem .9rem 4rem; }
+}

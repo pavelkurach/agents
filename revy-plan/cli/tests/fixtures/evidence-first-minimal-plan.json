@@ -1,0 +1,54 @@
+{
+  "slug": "add-store-metrics",
+  "repository": {
+    "root": "/tmp/fixture-repo",
+    "name": "fixture-repo-000000000000",
+    "revision": "rev1",
+    "dirty": {
+      "changed_paths": 0,
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "captured_at": "2026-08-26T00:00:00Z"
+  },
+  "run": {
+    "state": "awaiting_capability_approval",
+    "data": {
+      "report": {
+        "repository": {
+          "revision": "rev1",
+          "dirty_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "capabilities": [
+          {
+            "id": "capability-fs",
+            "name": "filesystem",
+            "version": null,
+            "interface": "read",
+            "proves": [
+              "textual"
+            ],
+            "limitations": []
+          }
+        ],
+        "proposals": [
+          {
+            "id": "proposal-serena",
+            "name": "serena",
+            "closes": [
+              "uncertainty-consumers"
+            ],
+            "benefit": "Resolve call edges.",
+            "cost": "Downloads a server.",
+            "side_effects": [
+              {
+                "kind": "download"
+              }
+            ],
+            "recommendation": "add_now"
+          }
+        ]
+      },
+      "prior": null
+    }
+  }
+}
