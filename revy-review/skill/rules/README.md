@@ -28,5 +28,5 @@ Example:            (optional; mostly language packs)
 - Topics hold general rules (`concurrency`, `api`, `data`, …) and language-only rules (`go`, `typescript`, `python`,
   `rust`). A rule that fits a general topic goes there even if its examples are language-specific.
 
-Custom rules: add a file to a topic folder, or a new folder for a new topic (example: `../examples/custom-rules.md`).
-Ids are unique across all topics.
+Your own rules go in `~/.revy-review/rules/<topic>/<id>.md`, same format, merged with these (example:
+`../examples/custom-rules.md`). Ids are unique across all topics of both.

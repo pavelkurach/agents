@@ -15,19 +15,21 @@ Design notes behind the rules base: `notes/`.
    consumers and every new assumption inward to all producers, with the best code intelligence available.
 
 ## Rules
-- One rules folder, the skill's `rules/` (state.json `rules`): every subfolder is a topic, one rule per file
-  `<topic>/<id>.md`, the file name is the id (unique across topics). Format in `rules/README.md`: `langs` and `When`
-  (read by the helper), `Ask` / `Report as` and optional `Not when` / `Example` (read by the reviewer).
-  Re-authored; nothing copied from tave. No rule topic is known to the code.
-- Custom rules: the owner adds files to a topic folder, or a new folder for a new topic. No code change.
-- `revy-review rules` validates the folder (a `langs:` and a `When:` line in every file, unique ids; errors name the
-  file) and prints the index the reviewers read: one line per rule whose `langs` cover a language of the changed
-  files (by extension; `any` always). Reviewers open only rule files whose `When` matches the diff; `When: always`
+- Two rules folders, in load order: the skill's `rules/` (required) and the owner's `~/.revy-review/rules/`
+  (optional). In each, every subfolder is a topic, one rule per file `<topic>/<id>.md`, the file name is the id
+  (unique across the topics of both folders). Format in `rules/README.md`: `langs` and `When` (read by the helper),
+  `Ask` / `Report as` and optional `Not when` / `Example` (read by the reviewer). Re-authored; nothing copied from
+  tave. No rule topic is known to the code.
+- Custom rules: the owner adds files to `~/.revy-review/rules/<topic>/`, a new folder for a new topic. No code
+  change.
+- `revy-review rules` validates both folders (a `langs:` and a `When:` line in every file, unique ids; errors name the
+  file, a duplicate id names both files) and prints one index the reviewers read: per folder a `Rule files:` header,
+  then one line per rule whose `langs` cover a language of the changed files (by extension; `any` always). Reviewers open only rule files whose `When` matches the diff; `When: always`
   asks them to apply the rule to every changed file.
 - Language focus: Python and Rust first (packs, fixtures, evals); Go and TypeScript packs exist but are secondary.
 
 ## Invocation
-`/revy-review [target] [fix] [reviewers=4]`
+`/revy-review [target] [fix]`
 - no target: current branch vs its merge-base with the default branch; uncommitted work is snapshotted into a
   commit (`git stash create`) and that sha is the head
 - `<PR/MR number or URL>`: the PR head vs its merge-base
@@ -48,13 +50,12 @@ The agent resolves the target and records `base`/`head` in the review state; eve
    gate findings (self mode: offer to fix first; team mode: the report says so and asks whether to run the deep review
    anyway). `partly` and `unverifiable` do not block. Otherwise the criteria are passed to every reviewer as the
    scenarios that matter most, and the gate's findings join the reviewers' at the verifier.
-1. Reviewers in parallel (2 by default — one reviewer already reaches 48 of the 50 human comments four reach on
-   h01–h08; 4 on request), same full brief, plus a context step (ticket and links, git log/blame of touched code,
-   project docs) (`reviewer.md`: impact outward/inward, how-to-look, rules floor,
-   impact ledger, structured findings) → `reviews/<n>.json`; each must pass `revy-review check`.
+1. Four lens reviewers in parallel (two lens pairs, each drawn twice), same full brief, plus a context step
+   (ticket and links, git log/blame of touched code, project docs) (`reviewer.md`: impact outward/inward,
+   how-to-look, rules floor, impact ledger, structured findings) → `reviews/<n>.json`; each must pass `revy-review check`.
    Lenses (under test, revy3p): each reviewer also gets one "review everything, but go deepest on X" line —
    impact · failure and concurrency · tests and edge inputs · design and simplicity.
-   Plus one subagent per enabled check (see Extensions), same output schema and validation.
+   Plus one subagent per specialist and per enabled check (see Extensions), same output schema and validation.
 2. One verifier (`verifier.md`): merge same-root-cause findings, walk each scenario in code, drop only when the code
    contradicts it (refuting only the stated reason is not enough — judge the fix on its merits), unresolved →
    question → `verified.json`; must pass `revy-review check`.
@@ -62,7 +63,16 @@ The agent resolves the target and records `base`/`head` in the review state; eve
 4. Self mode: deliver report, or run the `fix` loop. Team mode: curate → post.
 
 ## Extensions
-- Rules: see Rules. Checks: `checks/<name>.md` in `~/.revy/review/checks/` or `<repo>/.revy/review/checks/` —
+- Rules: see Rules.
+- Specialists: `reviewers/<name>.md` in the skill (the built-in focused reviewers) and in `~/.revy-review/` (the
+  owner's), loaded in that order, file-name order within each; the file stem is the name, unique across both (a
+  duplicate is an error naming both files). A file is an optional `rules: <topic>, …` line, then the prompt (the
+  focus). Every specialist runs on every review, as reviewer n = 5, 6, … after the lens reviewers, with
+  `reviewer.md` and its file in place of a lens; it reviews only what its focus covers, or writes an empty review
+  when nothing falls under it. It receives the rules of its `rules:` topics from both rules folders, and no rules
+  without the line; a topic no rules folder has is an error. A missing prompt is an error, and that file is not
+  dispatched.
+- Checks: `checks/<name>.md` in `~/.revy/review/checks/` or `<repo>/.revy/review/checks/` —
   `When` (`always` or a diff condition), a brief, and what counts as done. Each enabled check is one extra subagent
   alongside the reviewers (never instead of them), with the same output schema, validation and verifier. Start a concern as a rule; promote it to a check when it needs its own context (e.g. repo-wide
   duplication). The problem gate is a built-in check that runs first.
@@ -82,10 +92,11 @@ The agent resolves the target and records `base`/`head` in the review state; eve
 ## Formats (contract between the skill and the helper)
 All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are stable strings.
 - `state.json`: `{"repo": abs path, "target": text, "base": sha, "head": sha, "mode": "self" | "team",
-  "round": n, "reviewers": 2 | 4, "rules": abs path}` — written by the agent; every command reads it from
-  the review directory (`mode` and `round` steer only the skill). `reviewers` is the reviewer-subagent count: 2 = one
-  draw of the two-lens split (default), 4 = two independent draws (any other value is rejected); `rules` is the rules
-  folder.
+  "round": n, "skill": abs path}` — written by the agent; every command reads it from the review directory (`mode`
+  and `round` steer only the skill). `skill` is this skill's directory. The helper, not the agent, resolves the
+  sources from it (`<skill>/rules`, `<skill>/reviewers`, `~/.revy-review/rules`, `~/.revy-review/reviewers`): the
+  layout lives in one place, `rules` and `check` see the same sources, and an absent plug-in folder needs no
+  bookkeeping in the agent.
 - `problem.json`: `{"statement", "source": "ticket" | "description" | "commits" | "owner" | "inferred",
   "criteria": [{"id": "C1", "text", "quote": source text | null, "implied": bool, "verdict": "met" | "partly" |
   "not_met" | "unverifiable", "evidence": [site]}], "out_of_scope": [text], "scope_creep": [{"id": "S1", "sites": [site, ...], "why"}],
@@ -105,20 +116,22 @@ All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are
   `"suspicion": {"id": "<n>.s<k>", "claim", "evidence", "open_question", "tried"}` (all non-blank; ids unique per
   file and prefixed with the reviewer number); `suspicion` on any other verdict, or `suspect` without it, is rejected.
   `check`: schema; quote found within ±3 lines of the first site at head; every changed file has ≥1 ledger
-  entry; every `finding` verdict names a finding in the file; every cited rule id is a file in the rules folder.
+  entry (except in a specialist's file, whose focus the helper cannot know, and the investigator's); every
+  `finding` verdict names a finding in the file; every cited rule id is a file in a rules folder.
 - `investigations.json` (written by the investigator subagent, which resolves suspicions): `{"items": [{"suspicion":
   "<n>.s<k>", "outcome": "confirmed" | "refuted" | "unresolved", "reason", "evidence", "finding": "<n>.<k>" | null,
   "check": text | null}]}`. Every suspicion in `reviews/*.json` appears exactly once and ids must exist. `confirmed`
   needs `finding`, a finding id present in some review file (the investigator appends it to its own
-  `reviews/<m>.json`, lens `investigator`, m = next free number ≥ 5, so `check` covers it); `unresolved`
+  `reviews/<m>.json`, lens `investigator`, m = next free number after the specialists and checks, so `check` covers
+  it); `unresolved`
   needs `check` (how a human verifies it quickly); `finding` is null unless confirmed, `check` null unless unresolved.
 - `verified.json`: `{"findings": [{"id": "F<k>", …same fields…, "merged_from": ["<n>.<k>", …]}], "dropped":
   [{"from": "<n>.<k>", "refuted_by": site, "why"}]}`. `check`: every reviewer and check finding appears
   exactly once in `merged_from` or `dropped`; `refuted_by` exists at head. With `verified.json` present, `check` also
-  requires `reviews/1.json..R.json` (R = state `reviewers`), unless `problem.json` has `blocks: true` and none of
-  `reviews/1..R` exists (the gate stopped the review before reviewers ran), and, when any review holds a suspicion,
-  `investigations.json`; confirmed findings are ordinary review findings and need the same exactly-once accounting.
-  `reviews/<n>.json` with R < n < 5 is always rejected.
+  requires `reviews/1.json..N.json` (N = 4 lens reviewers + the specialists that parse), unless `problem.json` has
+  `blocks: true` and none of `reviews/1..N` exists (the gate stopped the review before reviewers ran), and, when any
+  review holds a suspicion, `investigations.json`; confirmed findings are ordinary review findings and need the same
+  exactly-once accounting.
 - `report.md` (rendered by `sync` from `verified.json`, edited by the owner): one block per kept finding —
   `### F<k>. <title>` then `- post: yes | no`, `- severity: …`, `- where: site, site`, a blank line, the body
   (why it breaks, then `Fix: …`) up to the next `##`/`###` heading. `## My findings` takes `- site [severity] — text`.
@@ -139,8 +152,11 @@ Resolved details (skill and helper agree on these):
 - Gate findings reach the verifier: `not_met` → blocking, `partly` → non-blocking, one question per scope-creep entry; their
   `merged_from` ids are `C<k>` and `S<k>`, which `check` accepts when they exist in problem.json and
   requires exactly once each in `merged_from` or `dropped`.
-- Check subagents are reviewers n = 5, 6, … with `lens` = the check name.
-- `revy-review rules` prints the rules folder once in a `Rule files:` header, then `<id> (<topic>) [<langs>] — <When>`.
+- Numbering: lens reviewers 1..4, specialists 5.. in load order with `lens` = the specialist's name, then checks
+  with `lens` = the check name, then the investigator.
+- `revy-review rules` prints, per rules folder, a `Rule files: <dir>/<topic>/<id>.md` header, then
+  `<id> (<topic>) [<langs>] — <When>`; then per specialist `Reviewer <n>: <name> — <file>` with its own index
+  indented two spaces below it.
 - `report.md` may hold a `## Notes` section for the owner; `comments` never prints it.
 - Exclusions everywhere use `post: no` (self mode: excluded from `fix`).
 - Self mode = the owner's own change (no target, own commit/range, or `fix`); team mode = someone else's PR/MR.
@@ -152,7 +168,8 @@ Resolved details (skill and helper agree on these):
 ## Rust helper (`revy-review …`)
 The crate in `cli/`: one standalone `revy-review` binary; the skill in `skill/` calls it.
 Pure and file-based except reading git objects for quotes and the diff.
-- `rules [dir]`: validates the rules folder and prints the index for the change's languages.
+- `rules [dir]`: validates the rules folders and specialists and prints the index for the change's languages,
+  with each specialist's number and index.
 - `check [dir]`: validates every file present in the review directory (Formats above) and the accounting across
   them — `problem.json`, each `reviews/<n>.json` (a file with lens `investigator` owes no ledger coverage, since it
   reviews only suspicions), `investigations.json` (every suspicion resolved exactly once, ids exist, `confirmed` names
@@ -167,4 +184,4 @@ Errors are precise and actionable; the skill tells the agent to fix and re-run u
 ## Open (decided by eval)
 - Final reviewer brief: `revy` candidate (ens2 + impact ledger + rules floor) vs tave on Opus 5.5 medium,
   on f01–f20 (shipped regressions) and h01–h08 (human-reviewed PRs).
-- Reviewer count (4 is a knob, untested beyond 4); rule-index filtering beyond language (`applies_to`).
+- Rule-index filtering beyond language (`applies_to`).

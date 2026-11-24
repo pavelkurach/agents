@@ -19,7 +19,7 @@ text learns which code, which sites and which behaviour; it names them directly 
 `C<k>`, `S<k>`, reviewer numbers).
 
 ## Target and state
-`/revy-review [target] [fix] [reviewers=4]`
+`/revy-review [target] [fix]`
 - no target: current branch vs its merge-base with the default branch. Uncommitted work is reviewed as a snapshot
   commit that leaves the branch and index alone: `head` = `git stash create` (empty output: the tree is clean, use
   `HEAD`); it omits untracked files, so tell the owner which ones the review does not see
@@ -34,9 +34,8 @@ Review directory: `~/.revy/reviews/<repo dir name>/<target, with / replaced by -
 (probe scripts, build targets) goes under its `scratch/`; delete `scratch/` when the review is done. A review there of the same
 base and head: resume from it (the owner may have curated report.md). Of a different base or head: ask before
 overwriting. Done when `state.json` holds
-`{"repo": "<abs path>", "target": "<as given>", "base": "<sha>", "head": "<sha>", "mode": "self" | "team", "round": 1, "reviewers": R, "rules": "<this skill's directory>/rules"}`;
-every later step uses this base and head. R, the reviewer count, is 2; only the owner makes it 4 (`reviewers=4`),
-small diffs included.
+`{"repo": "<abs path>", "target": "<as given>", "base": "<sha>", "head": "<sha>", "mode": "self" | "team", "round": 1, "skill": "<this skill's directory>"}`;
+every later step uses this base and head.
 
 ## 0. Problem gate
 Collect the sources: ticket, PR/MR description, linked issue, commit messages in the range. With none of them:
@@ -52,35 +51,41 @@ re-review. Team mode: the report says so, and you ask whether to run the deep re
 `unverifiable` let the review continue.
 
 ## 1. Reviewers and checks
-- `revy-review rules` validates the rules folder and prints the rules index for the languages the change touches;
-  fix rule errors with the owner, or report them and continue without the broken rule.
+- `revy-review rules` validates the rules and specialists (this skill's and the owner's `~/.revy-review/`) and
+  prints the rules index for the languages the change touches, then one `Reviewer <n>: <name> — <file>` line per
+  specialist with that specialist's own index indented below it (none when its file names no `rules:`). Fix
+  errors with the owner, or report them and continue without the broken rule or specialist.
 - Checks: every `*.md` in `~/.revy/review/checks/` and `<repo>/.revy/review/checks/`, enabled when its `When` is
   `always` or the diff meets its condition.
 - Dispatch together, as separate subagents whatever the diff size — each starts from a clean context, which is what
   makes their verdicts independent:
-  - R reviewer subagents with `reviewer.md`, n = 1..R: reviewer 1 takes lenses 1+2 and reviewer 2 lenses 3+4; with
-    R = 4, reviewers 3 and 4 are a second independent draw of lenses 1+2 and 3+4. Lenses:
+  - 4 lens reviewer subagents with `reviewer.md`, n = 1..4: reviewer 1 takes lenses 1+2 and reviewer 2 lenses 3+4;
+    reviewers 3 and 4 are a second independent draw of lenses 1+2 and 3+4. Lenses:
     1. contracts the change touches and every caller, consumer and producer
     2. failure — concurrency, interleavings, partial failure, cancellation, resources
     3. tests and edge inputs — the input matrix the code branches on, tests that pass by coincidence, boundaries
     4. design and simplicity — how sibling code and existing helpers do the same job, misuse, duplication, simpler
        data shapes
-  - one subagent per enabled check with `check.md`, n = 5, 6, …, plus the check file's path.
+  - one specialist subagent per `Reviewer <n>:` line with `reviewer.md`, at that n, given its file in place of a
+    lens and, as its rules index, the lines indented below its line, indent removed (none when there are none).
+  - one subagent per enabled check with `check.md`, n counting on after the last specialist (5 with none), plus
+    the check file's path.
 
   Inputs for each: repo, base, head, n, lens, the problem statement and criteria from `problem.json`, the rules
-  index, the output path `reviews/<n>.json` in the review directory.
+  index (the output of `revy-review rules` up to its first `Reviewer` line), the output path `reviews/<n>.json` in
+  the review directory.
 - Done when every dispatched subagent has returned and `revy-review check` is clean.
 
 ## 1b. Investigate
 When any review file holds a `suspect` entry, dispatch one investigator subagent with `investigator.md`, on the
 strongest model your harness offers at its highest reasoning effort; inputs: repo, base, head, the review
-directory, n = the next number after the checks (5 when there are none). Done when `revy-review check` is clean.
+directory, n = the next number after the specialists and checks. Done when `revy-review check` is clean.
 No suspicions: skip this step.
 
 ## 2. Verify
 Dispatch one verifier subagent with `verifier.md`, always separate from the reviewers; inputs: repo, base, head,
 the review directory. Done when `revy-review check` is clean; once `verified.json` exists it also requires every
-`reviews/1..R.json` and, when there are suspicions, `investigations.json`.
+lens reviewer's and specialist's `reviews/<n>.json` and, when there are suspicions, `investigations.json`.
 
 ## 3. Report
 `revy-review sync` renders `report.md` from `verified.json` (it refuses a review that does not check clean). Your own notes for the owner (what you checked, assumptions, anything that

@@ -1,7 +1,7 @@
 # Reviewer
 
-Inputs: repo, base, head, `<n>`, `<lens>`, `<problem criteria>` (statement and acceptance criteria), the rules
-index, the output path `reviews/<n>.json`.
+Inputs: repo, base, head, `<n>`, `<lens>` or a specialist file, `<problem criteria>` (statement and acceptance
+criteria), the rules index (a specialist may have none), the output path `reviews/<n>.json`.
 
 Review the change `<base>..<head>` in `<repo>` as a careful senior engineer would before approving the merge
 request. The problem it solves: `<problem criteria>` — these criteria are the scenarios that matter most. Work on
@@ -14,8 +14,14 @@ the change introduces or exposes — and also:
 - Design: APIs, types, names and structure that let callers misuse it, that contradict the rest of the codebase, or
   that will cost the project later; simpler ways to get the same result.
 
-Review everything above, but go deepest on `<lens>`. Read whatever code you need. Report what only a reviewer
+With a lens, review everything above, but go deepest on `<lens>`. Read whatever code you need. Report what only a reviewer
 catches; compiler, linter, existing-test and style issues belong to those tools.
+
+**Specialist** — dispatched with a specialist file instead of a lens: the file's text below its optional `rules:`
+line is your focus. Review only the code, impact and tests your focus covers, and every section below applies
+within it. When nothing in the change falls under your focus, write `reviews/<n>.json` with empty `ledger` and
+`findings` and reply that the change has nothing for this focus. In your output, `lens` is the file's name
+without `.md`.
 
 ## Impact beyond the diff matters most: the worst bugs are in code the diff does not show.
 - Outward: list every contract the change touches — signature, return value, behaviour, precondition, error
@@ -81,9 +87,10 @@ build too slow), record why as `probe.why_not_run`; the riskiest cell is then un
 
 ## Rules floor
 The rules index lists the review rules for the change's languages, one line each: id, topic, langs, and when it
-applies. Read it whole. For every rule whose condition the change could meet (`When: always`: every changed file),
-open `<rules dir>/<topic>/<id>.md` and answer its Ask with evidence at every matching site. The rules are the floor
-of your review, not its ceiling.
+applies (a specialist without a rules index skips this section). Read it whole. For every rule whose condition the
+change could meet (`When: always`: every changed file), open its file (the `Rule files:` path heading its section
+of the index) and answer its Ask with evidence at every matching site. The rules are the floor of your review, not
+its ceiling.
 
 ## Output
 Write `reviews/<n>.json` (`site` = `"path:line"`, repo-relative, line at head):
@@ -112,5 +119,5 @@ Write `reviews/<n>.json` (`site` = `"path:line"`, repo-relative, line at head):
 
 Done when every touched contract has an entry for each of its consumers and producers, every changed unit with real
 logic has a complete edge-case matrix and a probe, every applicable rule is answered at every matching site, and every changed
-file has at least one entry. `revy-review check` validates the file (schema, quotes at head within ±3 lines, ledger
+file has at least one entry — for a specialist, all of this within its focus, with entries only for the files it covers. `revy-review check` validates the file (schema, quotes at head within ±3 lines, ledger
 coverage, rule ids, the matrix floor, the probe); you may be sent its errors to fix. Reply `done` when the file is written.
