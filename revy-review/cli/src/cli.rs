@@ -195,7 +195,11 @@ fn specialists(state: &State) -> Result<(Vec<Specialist>, Vec<Diagnostic>), Shel
     let mut found = Vec::new();
     let mut errors = Vec::new();
     for source in sources(state) {
-        for path in git::files(&source.join("reviewers"), "md")? {
+        // README.md documents the folder; it is not a specialist.
+        for path in git::files(&source.join("reviewers"), "md")?
+            .into_iter()
+            .filter(|p| p.file_name() != Some("README.md".as_ref()))
+        {
             let text = git::read(&path)?;
             match specialists::parse(&lossy(path.file_stem()), path.clone(), &text) {
                 Ok(specialist) => found.push(specialist),
