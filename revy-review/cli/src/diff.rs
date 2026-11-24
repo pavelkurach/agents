@@ -1,4 +1,4 @@
-//! What the checks know about the repository: the change (changed files and
+//! What `revy-review check` knows about the repository: the change (changed files and
 //! the head-side lines a forge shows) and a snapshot of files at head.
 
 use std::collections::BTreeMap;

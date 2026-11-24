@@ -1,4 +1,4 @@
-//! `reviews/<n>.json`: one reviewer's (or check's) impact ledger and findings.
+//! `reviews/<n>.json`: one reviewer's impact ledger and findings.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;

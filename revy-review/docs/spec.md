@@ -55,7 +55,7 @@ The agent resolves the target and records `base`/`head` in the review state; eve
    how-to-look, rules floor, impact ledger, structured findings) → `reviews/<n>.json`; each must pass `revy-review check`.
    Lenses (under test, revy3p): each reviewer also gets one "review everything, but go deepest on X" line —
    impact · failure and concurrency · tests and edge inputs · design and simplicity.
-   Plus one subagent per specialist and per enabled check (see Extensions), same output schema and validation.
+   Plus one subagent per specialist (see Extensions), same output schema and validation.
 2. One verifier (`verifier.md`): merge same-root-cause findings, walk each scenario in code, drop only when the code
    contradicts it (refuting only the stated reason is not enough — judge the fix on its merits), unresolved →
    question → `verified.json`; must pass `revy-review check`.
@@ -71,11 +71,8 @@ The agent resolves the target and records `base`/`head` in the review state; eve
   `reviewer.md` and its file in place of a lens; it reviews only what its focus covers, or writes an empty review
   when nothing falls under it. It receives the rules of its `rules:` topics from both rules folders, and no rules
   without the line; a topic no rules folder has is an error. A missing prompt is an error, and that file is not
-  dispatched.
-- Checks: `checks/<name>.md` in `~/.revy/review/checks/` or `<repo>/.revy/review/checks/` —
-  `When` (`always` or a diff condition), a brief, and what counts as done. Each enabled check is one extra subagent
-  alongside the reviewers (never instead of them), with the same output schema, validation and verifier. Start a concern as a rule; promote it to a check when it needs its own context (e.g. repo-wide
-  duplication). The problem gate is a built-in check that runs first.
+  dispatched. Specialists are the one extension point for reviewers: start a concern as a rule; promote it to a
+  specialist when it needs its own context (e.g. repo-wide duplication).
 
 ## Curation and posting (team mode)
 - `report.md` is the editing surface: per finding `post: yes|no`, severity, title, body; a `## My findings` section
@@ -122,11 +119,11 @@ All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are
   "<n>.s<k>", "outcome": "confirmed" | "refuted" | "unresolved", "reason", "evidence", "finding": "<n>.<k>" | null,
   "check": text | null}]}`. Every suspicion in `reviews/*.json` appears exactly once and ids must exist. `confirmed`
   needs `finding`, a finding id present in some review file (the investigator appends it to its own
-  `reviews/<m>.json`, lens `investigator`, m = next free number after the specialists and checks, so `check` covers
+  `reviews/<m>.json`, lens `investigator`, m = next free number after the specialists, so `check` covers
   it); `unresolved`
   needs `check` (how a human verifies it quickly); `finding` is null unless confirmed, `check` null unless unresolved.
 - `verified.json`: `{"findings": [{"id": "F<k>", …same fields…, "merged_from": ["<n>.<k>", …]}], "dropped":
-  [{"from": "<n>.<k>", "refuted_by": site, "why"}]}`. `check`: every reviewer and check finding appears
+  [{"from": "<n>.<k>", "refuted_by": site, "why"}]}`. `check`: every reviewer finding appears
   exactly once in `merged_from` or `dropped`; `refuted_by` exists at head. With `verified.json` present, `check` also
   requires `reviews/1.json..N.json` (N = 4 lens reviewers + the specialists that parse), unless `problem.json` has
   `blocks: true` and none of `reviews/1..N` exists (the gate stopped the review before reviewers ran), and, when any
@@ -152,8 +149,8 @@ Resolved details (skill and helper agree on these):
 - Gate findings reach the verifier: `not_met` → blocking, `partly` → non-blocking, one question per scope-creep entry; their
   `merged_from` ids are `C<k>` and `S<k>`, which `check` accepts when they exist in problem.json and
   requires exactly once each in `merged_from` or `dropped`.
-- Numbering: lens reviewers 1..4, specialists 5.. in load order with `lens` = the specialist's name, then checks
-  with `lens` = the check name, then the investigator.
+- Numbering: lens reviewers 1..4, specialists 5.. in load order with `lens` = the specialist's name, then the
+  investigator; `check` rejects any other review file numbered past the specialists.
 - `revy-review rules` prints, per rules folder, a `Rule files: <dir>/<topic>/<id>.md` header, then
   `<id> (<topic>) [<langs>] — <When>`; then per specialist `Reviewer <n>: <name> — <file>` with its own index
   indented two spaces below it.

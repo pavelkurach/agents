@@ -451,7 +451,7 @@ fn specialist_review_with_an_empty_ledger_is_accepted() {
 }
 
 #[test]
-fn review_numbered_past_the_specialists_owes_coverage() {
+fn review_numbered_past_the_specialists_is_rejected() {
     let mut review = empty_review(5);
     review["lens"] = json!("duplication");
     review["ledger"] = json!([]);
@@ -461,7 +461,7 @@ fn review_numbered_past_the_specialists_owes_coverage() {
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "reviews/5.json: ledger: changed file src/calc.rs has no ledger entry\nreviews/5.json: ledger: changed file src/util.py has no ledger entry\n",
+        "reviews/5.json: reviewer: there is no reviewer 5: the 4 lens reviewers and the specialists `revy-review rules` lists are 1..4, and only the investigator numbers after them\n",
     );
 }
 

@@ -14,7 +14,7 @@ self-review.
 ## Pipeline
 1. Problem gate (`problem.md`) → `problem.json`; a change that misses its problem stops here.
 2. Reviewers (`reviewer.md`, one lens pair each; each changed unit compared with what base guaranteed and probed by
-   running it), specialists (`reviewer.md` with a focus) and enabled checks (`check.md`) → `reviews/<n>.json`.
+   running it) and specialists (`reviewer.md` with a focus) → `reviews/<n>.json`.
 3. Investigator (`investigator.md`) for the suspicions they left → `investigations.json`.
 4. Verifier (`verifier.md`) → `verified.json`; `revy-review sync` renders `report.md`, which the owner edits.
 5. `revy-review comments` prints the post-ready comments; in self-review, `fix` fixes the findings and re-reviews.
@@ -41,21 +41,23 @@ revy-review comments  # print the post-ready comments from report.md
 ```
 
 ## Extending
-Built-in specialists live in `skill/reviewers/`; your own rules and specialists go in `~/.revy-review/`, which
-every review reads on top of the skill's (absent: built-ins only):
+Two things extend a review: **rules** (one question a reviewer must answer where the diff matches a condition) and
+**specialists** (an extra reviewer subagent with its own focus). Built-ins live in the skill: `skill/rules/` and
+`skill/reviewers/` (e.g. `migrations.md`). Yours go in `~/.revy-review/`, which every review loads after the
+skill's; without it, only the built-ins run.
 
 ```
 ~/.revy-review/
+├── README.md                 # optional; anything outside rules/ and reviewers/ is ignored
 ├── rules/
-│   └── <topic>/<id>.md       # same layout and format as skill/rules/
+│   └── <topic>/<id>.md       # one rule per file; the folder is its topic, the file name its id
 └── reviewers/
-    └── <name>.md             # one specialist each
+    └── <name>.md             # one specialist per file; the file name is its name
 ```
 
-A company can ship this folder as a git repository: `git clone <url> ~/.revy-review`.
-
-A rule, `~/.revy-review/rules/payments/amount-as-float.md` (format in `skill/rules/README.md`; rule ids are unique
-across both rules folders, a duplicate is an error naming both files):
+**A rule**, `~/.revy-review/rules/payments/amount-as-float.md` (full format: `skill/rules/README.md`). Only `langs:`
+and `When:` are required; `langs` is `any` or a list of `go`, `python`, `rust`, `typescript`, and the rule is
+indexed only when the change touches one of them. `When: always` applies it to every changed file.
 
 ```markdown
 # amount-as-float
@@ -63,12 +65,17 @@ langs: python, typescript
 
 When: The diff stores, computes or serializes a money amount.
 Ask: Is the amount an integer of minor units or a decimal type end to end, including JSON and the database column?
+Not when: display-only formatting of an amount that is never stored or summed.
 Report as: `<amount>` is a float, so `<operation>` rounds cents; fix: integer minor units or Decimal end to end.
 ```
 
-A specialist, `~/.revy-review/reviewers/payments.md`: an optional `rules:` line naming the rule topics it receives
-(without it, none), then its prompt. Every specialist runs on every review, after the four reviewers, and reviews
-only what its prompt covers; the file name is its name, unique across `skill/reviewers/` and yours.
+The four core reviewers receive every rule, of every topic, whose `langs` match; findings cite a rule by its id.
+
+**A specialist** runs on every review as reviewer 5, 6, … (built-ins first, then yours, file-name order), after the
+four core reviewers. Its file is an optional first line `rules: <topic>, …`, then the prompt: what it reviews. It
+reviews only that, and writes an empty review when the change has nothing for it.
+
+With rules, `~/.revy-review/reviewers/payments.md` receives the rules of those topics, from both rules folders:
 
 ```markdown
 rules: payments, security
@@ -78,8 +85,28 @@ that amounts never pass through floats, and that each state change of a payment 
 in the same transaction.
 ```
 
-`revy-review rules` validates both and lists each specialist with its number. Optional: checks in
-`~/.revy/review/checks/` or `<repo>/.revy/review/checks/`, and your tone in `skill/voice.md`.
+Without the line, `~/.revy-review/reviewers/feature-flags.md` gets no rules, only its prompt:
+
+```markdown
+Feature flags: every flag the change adds, reads or removes. Check that the default is the old behaviour, that
+both branches are tested, and that a removed flag has no remaining reads in code, config or dashboards.
+```
+
+**Sharing a company pack**: keep the `~/.revy-review/` tree in a git repository; each engineer runs
+`git clone <url> ~/.revy-review` once and `git -C ~/.revy-review pull` to update.
+
+**Validate** with `revy-review rules` (from a review directory): it prints the rules index, then
+`Reviewer <n>: <name> — <file>` per specialist with its rules below it. It exits 1 and prints, per broken file:
+- `<file>: rule id <id> is also <other file>` — rule ids are unique across both rules folders and all topics.
+- `` <file>: rule <id> has no `langs: …` line `` (or `When: …`).
+- `<file>: specialist <name> is also <other file>` — names are unique across `skill/reviewers/` and yours.
+- `` <file>: specialist <name> names rule folder `<topic>`, which no rules directory has `` — a typo, or a topic
+  with no rules.
+- `<file>: specialist <name> has no prompt; write what it reviews`.
+
+Fix every error before reviewing; a rule or specialist file that does not parse is left out of the index.
+
+Your tone for posted comments goes in `skill/voice.md`.
 
 ## License
 MIT — see `LICENSE`.

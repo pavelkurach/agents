@@ -21,7 +21,7 @@ You verify the review findings for the change `<base>..<head>` in `<repo>`: read
    - When you refute only the stated reason, judge the proposed fix on its merits: keep the finding if the fix
      still prevents a real failure.
    - A finding you cannot settle either way stays, as a `question`.
-3. **Account** for every reviewer, check and gate item exactly once: in one kept finding's `merged_from`, or in
+3. **Account** for every reviewer finding and gate item exactly once: in one kept finding's `merged_from`, or in
    `dropped`.
 
 Write each kept finding's `title`, `breaks` and `fix` standalone: a reader who sees only that finding learns which

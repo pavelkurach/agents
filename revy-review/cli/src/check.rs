@@ -10,7 +10,7 @@ use crate::review::{self, Review};
 use crate::verified::{self, Verified};
 
 /// Reviewers 1..=4 review the whole change through lenses 1+2 and 3+4, each drawn twice.
-/// Specialists number on from 5, then checks, then the investigator.
+/// Specialists number on from 5, then the investigator.
 pub const LENS_REVIEWERS: u32 = 4;
 
 /// The parsed files of one review directory; absent files are `None` or empty.
@@ -90,10 +90,18 @@ pub fn check(
             .unwrap_or(file);
         // A specialist reviews only what its prompt covers, which the CLI cannot know, and
         // the investigator only suspicions: neither owes coverage of the change.
-        let specialist = stem
-            .parse::<u32>()
-            .is_ok_and(|n| (LENS_REVIEWERS + 1..=reviewers).contains(&n));
-        let owes_coverage = !specialist && !review.is_investigator();
+        let n = review.reviewer.get();
+        let specialist = (LENS_REVIEWERS + 1..=reviewers).contains(&n);
+        let unknown = n > reviewers && !review.is_investigator();
+        if unknown {
+            errors.push(Diagnostic::new(
+                format!("{file}: reviewer"),
+                format!(
+                    "there is no reviewer {n}: the {LENS_REVIEWERS} lens reviewers and the specialists `revy-review rules` lists are 1..{reviewers}, and only the investigator numbers after them"
+                ),
+            ));
+        }
+        let owes_coverage = !specialist && !unknown && !review.is_investigator();
         errors.extend(review::check(
             file,
             stem,

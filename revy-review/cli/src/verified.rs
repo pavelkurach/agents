@@ -84,7 +84,7 @@ impl Verified {
     }
 }
 
-/// Every reviewer, check and investigator finding, and every gate item in `problem.json`,
+/// Every reviewer and investigator finding, and every gate item in `problem.json`,
 /// each with how to name it.
 pub fn expected(
     reviews: &[(String, Review)],

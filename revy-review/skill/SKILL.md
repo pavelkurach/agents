@@ -50,13 +50,11 @@ offer to fix them first; once fixed, run the full review (steps 1–3) on `base.
 re-review. Team mode: the report says so, and you ask whether to run the deep review anyway. `partly` and
 `unverifiable` let the review continue.
 
-## 1. Reviewers and checks
+## 1. Reviewers
 - `revy-review rules` validates the rules and specialists (this skill's and the owner's `~/.revy-review/`) and
   prints the rules index for the languages the change touches, then one `Reviewer <n>: <name> — <file>` line per
   specialist with that specialist's own index indented below it (none when its file names no `rules:`). Fix
   errors with the owner, or report them and continue without the broken rule or specialist.
-- Checks: every `*.md` in `~/.revy/review/checks/` and `<repo>/.revy/review/checks/`, enabled when its `When` is
-  `always` or the diff meets its condition.
 - Dispatch together, as separate subagents whatever the diff size — each starts from a clean context, which is what
   makes their verdicts independent:
   - 4 lens reviewer subagents with `reviewer.md`, n = 1..4: reviewer 1 takes lenses 1+2 and reviewer 2 lenses 3+4;
@@ -68,8 +66,6 @@ re-review. Team mode: the report says so, and you ask whether to run the deep re
        data shapes
   - one specialist subagent per `Reviewer <n>:` line with `reviewer.md`, at that n, given its file in place of a
     lens and, as its rules index, the lines indented below its line, indent removed (none when there are none).
-  - one subagent per enabled check with `check.md`, n counting on after the last specialist (5 with none), plus
-    the check file's path.
 
   Inputs for each: repo, base, head, n, lens, the problem statement and criteria from `problem.json`, the rules
   index (the output of `revy-review rules` up to its first `Reviewer` line), the output path `reviews/<n>.json` in
@@ -79,7 +75,7 @@ re-review. Team mode: the report says so, and you ask whether to run the deep re
 ## 1b. Investigate
 When any review file holds a `suspect` entry, dispatch one investigator subagent with `investigator.md`, on the
 strongest model your harness offers at its highest reasoning effort; inputs: repo, base, head, the review
-directory, n = the next number after the specialists and checks. Done when `revy-review check` is clean.
+directory, n = the next number after the last specialist (5 with none). Done when `revy-review check` is clean.
 No suspicions: skip this step.
 
 ## 2. Verify
