@@ -1,0 +1,7 @@
+# breaking-contract-change
+langs: any
+
+When: Published contract changed: route, request or response schema, event or message payload, CLI flag, or public library signature — or a public function, signature unchanged, now rejects, raises on or mishandles argument values base accepted.
+Ask: Classify the change by direction. A request breaks when it accepts less: a new required field, a narrowed type or enum, stricter validation. A response breaks when it returns more: a new enum value, a newly nullable or omitted field, a wider range, or any new field for consumers that parse strictly (`deny_unknown_fields`, `additionalProperties: false`, generated clients with closed enums). Either breaks when a name keeps its form but changes meaning or units. What base accepted is set by its behaviour, not its annotations: values outside the declared type that base tolerated, converted or sent through a fallback are inputs callers already rely on — list them and walk each at head. Which consumers outside this repo read it — search clients, SDKs, OpenAPI or proto files, other services, queue consumers — and is there a version or deprecation path?
+Not when: purely additive and every consumer parses leniently · every consumer ships in the same deploy.
+Report as: `<contract>` `<change>` breaks `<consumer>`, which still `<sends / parses / branches on>` the old form and fails in production, beyond this repo's tests; fix: an additive change, a new version beside the old, or a deprecation window.

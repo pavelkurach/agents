@@ -1,0 +1,7 @@
+# locking-migration-on-large-table
+langs: any
+
+When: Migration adds an index, constraint or foreign key, alters a column type or enum, or bulk-updates rows of an existing table that may be large or hot.
+Ask: Which statement holds a write-blocking lock for a full scan, build or rewrite? Indexes: Postgres `CREATE INDEX CONCURRENTLY` (Alembic `postgresql_concurrently=True` inside `autocommit_block()`, Django `AddIndexConcurrently` with `atomic = False`) or MySQL `ALGORITHM=INPLACE, LOCK=NONE` — needed even on a new all-null column, since the build scans every row; a unique constraint attaches to a concurrently built index with `ADD CONSTRAINT … USING INDEX`. Constraints and FKs: `NOT VALID`, then `VALIDATE` in a separate statement (it allows reads and writes). Rewrites: a column type change, an enum changed by rewrite instead of `ALTER TYPE … ADD VALUE`, a backfill `UPDATE` in one transaction. Is `lock_timeout` set — a queued `ALTER` blocks every later query on the table while it waits? If a concurrent build fails, does the migration drop the INVALID index it leaves?
+Not when: the table is created in the same migration or known to stay small.
+Report as: `<statement>` on `<table>` takes `<lock>` for `<scan / build / rewrite>`: writes `<and reads>` stall for its duration and requests time out during deploy; fix: build indexes concurrently outside a transaction and attach constraints `USING INDEX`, `NOT VALID` + `VALIDATE`, an additive enum value, a batched backfill, `lock_timeout` with retry.
