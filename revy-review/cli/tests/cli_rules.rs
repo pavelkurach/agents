@@ -187,3 +187,96 @@ fn missing_rules_directory_is_an_actionable_error() {
         gone.display()
     ));
 }
+
+// --- the plug-in folder, ~/.revy-review/ -----------------------------------------
+
+const TEAM_RULE: &str = "# no-print-debugging\nlangs: python\n\nWhen: The diff adds a `print(` call.\nAsk: Should it be a log call?\n";
+
+#[test]
+fn plugin_rules_are_indexed_after_the_skills_under_their_own_header() {
+    let fx = fixture();
+    write(&fx.plugin(), "rules/team/no-print-debugging.md", TEAM_RULE);
+
+    let assert = rules(&fx);
+
+    assert.success().stdout(format!(
+        "{}edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
+         arc-mutex-single-owner (rust) [rust] — The diff wraps state in `Arc<Mutex<_>>`.\n\
+         Rule files: {}/rules/<topic>/<id>.md\n\
+         no-print-debugging (team) [python] — The diff adds a `print(` call.\n",
+        index_header(&fx),
+        fx.plugin().display()
+    ));
+}
+
+#[test]
+fn plugin_rule_reusing_a_built_in_id_is_an_error_naming_both_files() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "rules/team/edge-of-range-change.md",
+        support::EDGE_RULE,
+    );
+
+    let assert = rules(&fx);
+
+    assert.failure().code(1).stderr(format!(
+        "{}/rules/team/edge-of-range-change.md: rule id edge-of-range-change is also {}/logic/edge-of-range-change.md\n",
+        fx.plugin().display(),
+        fx.rules.path().display()
+    ));
+}
+
+#[test]
+fn empty_plugin_folder_leaves_the_built_in_index() {
+    let fx = fixture();
+    std::fs::create_dir_all(fx.plugin()).unwrap();
+
+    let assert = rules(&fx);
+
+    assert.success().stdout(format!(
+        "{}edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
+         arc-mutex-single-owner (rust) [rust] — The diff wraps state in `Arc<Mutex<_>>`.\n",
+        index_header(&fx)
+    ));
+}
+
+#[test]
+fn plugin_reviewers_are_listed_numbered_after_the_four_built_ins() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+    write(
+        &fx.plugin(),
+        "reviewers/api-compat.md",
+        "Wire compatibility with older clients.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.success().stdout(predicates::str::ends_with(format!(
+        "Reviewer 5: api-compat — {0}/reviewers/api-compat.md\n\
+         Reviewer 6: security — {0}/reviewers/security.md\n",
+        fx.plugin().display()
+    )));
+}
+
+#[test]
+fn blank_plugin_reviewer_is_an_error_naming_its_file_and_is_not_listed() {
+    let fx = fixture();
+    write(&fx.plugin(), "reviewers/security.md", " \n\n");
+
+    let assert = rules(&fx);
+
+    assert
+        .failure()
+        .code(1)
+        .stdout(predicates::str::contains("Reviewer").not())
+        .stderr(format!(
+            "{}/reviewers/security.md: plug-in reviewer security is blank; write its prompt: what it reviews and goes deepest on\n",
+            fx.plugin().display()
+        ));
+}

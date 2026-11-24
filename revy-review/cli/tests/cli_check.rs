@@ -225,18 +225,6 @@ fn directory_without_state_is_an_actionable_error() {
 }
 
 #[test]
-fn state_with_three_reviewers_is_rejected() {
-    let fx = fixture();
-    fx.write_state_with_reviewers(3);
-
-    let assert = check(&fx);
-
-    assert.failure().stderr(predicates::str::starts_with(
-        "state.json: reviewers: reviewers must be 2 or 4, got 3",
-    ));
-}
-
-#[test]
 fn state_without_a_rules_directory_is_rejected() {
     let fx = fixture();
     let mut state: Value =
@@ -330,6 +318,22 @@ fn unknown_rule_id_is_rejected() {
 }
 
 #[test]
+fn finding_citing_a_plugin_rule_passes() {
+    let mut review = valid_review();
+    review["findings"][0]["rule"] = json!("no-print-debugging");
+    let fx = with_review(&review);
+    write(
+        &fx.plugin(),
+        "rules/team/no-print-debugging.md",
+        "# no-print-debugging\nlangs: python\n\nWhen: The diff adds a `print(` call.\n",
+    );
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
 fn bad_severity_is_a_schema_error_naming_the_field() {
     let mut review = valid_review();
     review["findings"][0]["severity"] = json!("major");
@@ -379,18 +383,6 @@ fn reviewer_number_must_match_the_file_name() {
 
     assert.failure().stderr(
         "reviews/5.json: reviewer: reviewer 1 does not match the file name 5.json; reviewer n writes reviews/<n>.json\n",
-    );
-}
-
-#[test]
-fn review_numbered_between_the_reviewers_and_the_checks_is_rejected() {
-    let fx = fixture();
-    fx.write_json("reviews/3.json", &empty_review(3));
-
-    let assert = check(&fx);
-
-    assert.failure().stderr(
-        "reviews/3.json: state.json reviewers = 2, so only reviews/1.json..2.json are reviewers and checks start at 5.json\n",
     );
 }
 
@@ -845,7 +837,7 @@ fn with_one_suspicion() -> Fixture {
         .unwrap()
         .push(suspect_entry(&suspicion("1.s1")));
     let fx = with_review(&review);
-    fx.write_json("reviews/2.json", &empty_review(2));
+    fx.write_empty_reviews_2_to_4();
     fx
 }
 
@@ -875,7 +867,7 @@ fn investigations_resolving_every_suspicion_pass() {
     let assert = check(&fx);
 
     assert.success().stdout(
-        "reviews/1.json: ok (1 findings, 3 ledger entries)\nreviews/2.json: ok (0 findings, 2 ledger entries)\ninvestigations.json: ok (1 items)\n",
+        "reviews/1.json: ok (1 findings, 3 ledger entries)\nreviews/2.json: ok (0 findings, 2 ledger entries)\nreviews/3.json: ok (0 findings, 2 ledger entries)\nreviews/4.json: ok (0 findings, 2 ledger entries)\ninvestigations.json: ok (1 items)\n",
     );
 }
 
@@ -1031,7 +1023,7 @@ fn refuted_with_a_check_is_rejected() {
 /// Reviews 1 and 2, with findings 1.1 and 1.2 that `valid_verified` keeps.
 fn with_two_findings() -> Fixture {
     let fx = with_review(&review_with_two_findings());
-    fx.write_json("reviews/2.json", &empty_review(2));
+    fx.write_empty_reviews_2_to_4();
     fx
 }
 
@@ -1048,7 +1040,7 @@ fn verified_accounting_for_every_finding_passes() {
     let assert = check(&fx);
 
     assert.success().stdout(
-        "reviews/1.json: ok (2 findings, 2 ledger entries)\nreviews/2.json: ok (0 findings, 2 ledger entries)\nverified.json: ok (2 kept, 0 dropped)\n",
+        "reviews/1.json: ok (2 findings, 2 ledger entries)\nreviews/2.json: ok (0 findings, 2 ledger entries)\nreviews/3.json: ok (0 findings, 2 ledger entries)\nreviews/4.json: ok (0 findings, 2 ledger entries)\nverified.json: ok (2 kept, 0 dropped)\n",
     );
 }
 
@@ -1216,8 +1208,7 @@ fn scope_creep_id_unknown_to_problem_is_rejected() {
 
 // --- verified.json: every reviewer and suspicion accounted for ------------------
 
-const NEEDS_1_TO_2: &str =
-    "state.json reviewers = 2 needs reviews/1.json..2.json, one reviewer subagent per lens\n";
+const NEEDS_1_TO_4: &str = "the 4 built-in reviewers and the plug-in reviewers `revy-review rules` lists need reviews/1.json..4.json, one subagent each\n";
 
 fn with_reviews_and_empty_verified(numbers: &[u64]) -> Fixture {
     let fx = fixture();
@@ -1230,25 +1221,13 @@ fn with_reviews_and_empty_verified(numbers: &[u64]) -> Fixture {
 
 #[test]
 fn verified_with_a_reviewer_file_missing_is_rejected() {
-    let fx = with_reviews_and_empty_verified(&[1]);
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3]);
 
     let assert = check(&fx);
 
     assert
         .failure()
-        .stderr(format!("reviews/2.json missing: {NEEDS_1_TO_2}"));
-}
-
-#[test]
-fn verified_with_four_reviewers_and_only_files_1_and_2_is_rejected() {
-    let fx = with_reviews_and_empty_verified(&[1, 2]);
-    fx.write_state_with_reviewers(4);
-
-    let assert = check(&fx);
-
-    assert.failure().stderr(
-        "reviews/3.json missing: state.json reviewers = 4 needs reviews/1.json..4.json, one reviewer subagent per lens\nreviews/4.json missing: state.json reviewers = 4 needs reviews/1.json..4.json, one reviewer subagent per lens\n",
-    );
+        .stderr(format!("reviews/4.json missing: {NEEDS_1_TO_4}"));
 }
 
 fn gate_dropped(why: &str) -> Value {
@@ -1256,6 +1235,36 @@ fn gate_dropped(why: &str) -> Value {
         {"from": "C1", "refuted_by": "src/calc.rs:2", "why": why},
         {"from": "S1", "refuted_by": "src/util.py:1", "why": why}
     ]})
+}
+
+#[test]
+fn verified_with_a_plugin_reviewer_and_its_file_passes() {
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4, 5]);
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn verified_with_a_plugin_reviewer_but_no_file_for_it_is_rejected() {
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4]);
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "reviews/5.json missing: the 4 built-in reviewers and the plug-in reviewers `revy-review rules` lists need reviews/1.json..5.json, one subagent each\n",
+    );
 }
 
 #[test]
@@ -1272,7 +1281,7 @@ fn verified_with_a_blocking_gate_and_no_reviews_is_accepted() {
 
 #[test]
 fn verified_with_a_blocking_gate_and_every_reviewer_present_is_accepted() {
-    let fx = with_reviews_and_empty_verified(&[1, 2]);
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4]);
     fx.write_json("problem.json", &valid_problem());
     fx.write_json("verified.json", &gate_dropped("deep review ran anyway"));
 
@@ -1283,7 +1292,7 @@ fn verified_with_a_blocking_gate_and_every_reviewer_present_is_accepted() {
 
 #[test]
 fn verified_with_a_blocking_gate_and_a_partial_review_set_is_rejected() {
-    let fx = with_reviews_and_empty_verified(&[1]);
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3]);
     fx.write_json("problem.json", &valid_problem());
     fx.write_json("verified.json", &gate_dropped("partial"));
 
@@ -1291,7 +1300,7 @@ fn verified_with_a_blocking_gate_and_a_partial_review_set_is_rejected() {
 
     assert
         .failure()
-        .stderr(format!("reviews/2.json missing: {NEEDS_1_TO_2}"));
+        .stderr(format!("reviews/4.json missing: {NEEDS_1_TO_4}"));
 }
 
 #[test]

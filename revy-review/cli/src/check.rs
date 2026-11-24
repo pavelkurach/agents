@@ -9,8 +9,9 @@ use crate::problem::{self, Problem};
 use crate::review::{self, Review};
 use crate::verified::{self, Verified};
 
-/// Review numbers from here on belong to checks and the investigator, not to reviewer lenses.
-const FIRST_CHECK: u32 = 5;
+/// Reviewers 1..=4 are built in: lenses 1+2 and 3+4, each drawn twice. Plug-in reviewers
+/// number on from 5, then checks, then the investigator.
+pub const BUILT_IN_REVIEWERS: u32 = 4;
 
 /// The parsed files of one review directory; absent files are `None` or empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,9 +70,12 @@ impl ReviewDir {
     }
 }
 
+/// `reviewers` counts every reviewer subagent, numbered 1..=reviewers: the built-in ones,
+/// then the plug-in reviewers.
 pub fn check(
     dir: &ReviewDir,
     rules: &BTreeSet<String>,
+    reviewers: u32,
     change: &Change,
     head: &HeadFiles,
 ) -> Vec<Diagnostic> {
@@ -79,51 +83,40 @@ pub fn check(
     if let Some(problem) = &dir.problem {
         errors.extend(problem::check("problem.json", problem, head));
     }
-    let reviewers = dir.state.reviewers.count();
     for (file, review) in &dir.reviews {
         let stem = file
             .strip_prefix("reviews/")
             .and_then(|name| name.strip_suffix(".json"))
             .unwrap_or(file);
-        if stem
-            .parse::<u32>()
-            .is_ok_and(|n| (reviewers + 1..FIRST_CHECK).contains(&n))
-        {
-            errors.push(Diagnostic::new(
-                file,
-                format!("state.json reviewers = {reviewers}, so only reviews/1.json..{reviewers}.json are reviewers and checks start at {FIRST_CHECK}.json"),
-            ));
-        }
         errors.extend(review::check(file, stem, review, rules, change, head));
     }
     if let Some(doc) = &dir.investigations {
         errors.extend(investigations::check(doc, &dir.reviews));
     }
     if let Some(verified) = &dir.verified {
-        errors.extend(complete(dir));
+        errors.extend(complete(dir, reviewers));
         let expected = verified::expected(&dir.reviews, dir.problem.as_ref());
         errors.extend(verified::check(verified, &expected, rules, head));
     }
     errors
 }
 
-/// What the verifier needs before it runs: every reviewer lens's file (unless a blocking
-/// gate stopped the review before any ran) and, when there are suspicions, their investigation.
-fn complete(dir: &ReviewDir) -> Vec<Diagnostic> {
-    let reviewers = dir.state.reviewers.count();
+/// What the verifier needs before it runs: every reviewer's file (unless a blocking gate
+/// stopped the review before any ran) and, when there are suspicions, their investigation.
+fn complete(dir: &ReviewDir, reviewers: u32) -> Vec<Diagnostic> {
     let present: BTreeSet<String> = dir.reviews.iter().map(|(file, _)| file.clone()).collect();
-    let lenses: Vec<String> = (1..=reviewers)
+    let required: Vec<String> = (1..=reviewers)
         .map(|n| format!("reviews/{n}.json"))
         .collect();
     let stopped_at_gate = dir.problem.as_ref().is_some_and(|problem| problem.blocks)
-        && lenses.iter().all(|file| !present.contains(file));
-    let missing_reviews = lenses
+        && required.iter().all(|file| !present.contains(file));
+    let missing_reviews = required
         .into_iter()
         .filter(|file| !stopped_at_gate && !present.contains(file))
         .map(|file| {
             Diagnostic::new(
                 format!("{file} missing"),
-                format!("state.json reviewers = {reviewers} needs reviews/1.json..{reviewers}.json, one reviewer subagent per lens"),
+                format!("the {BUILT_IN_REVIEWERS} built-in reviewers and the plug-in reviewers `revy-review rules` lists need reviews/1.json..{reviewers}.json, one subagent each"),
             )
         });
     let suspicions: Vec<String> = investigations::raised(&dir.reviews)

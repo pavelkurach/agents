@@ -1,18 +1,19 @@
-//! Command shell: reads the review directory, the rules and git, calls the pure
-//! core, prints. Exit 0 = clean (warnings allowed), 1 = errors.
+//! Command shell: reads the review directory, the rules, the plug-in folder and git,
+//! calls the pure core, prints. Exit 0 = clean (warnings allowed), 1 = errors.
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::check::{self, ReviewDir};
+use crate::check::{self, BUILT_IN_REVIEWERS, ReviewDir};
 use crate::diff::Change;
 use crate::git::{self, ShellError};
 use crate::investigations;
 use crate::model::{Diagnostic, State, parse_json};
+use crate::plugins::{self, Reviewer};
 use crate::report;
-use crate::rules::{self, Rule};
+use crate::rules::{self, RuleSet};
 
 /// What a command produced: output, warnings, and errors that fail it.
 #[derive(Debug, Default)]
@@ -54,7 +55,8 @@ fn finish(result: Result<Outcome, ShellError>) -> ExitCode {
     }
 }
 
-/// Validates every rule file and prints the index for the languages the change touches.
+/// Validates every rule and plug-in reviewer file and prints the index for the languages the
+/// change touches.
 pub fn rules(dir: &Path) -> ExitCode {
     finish(run_rules(dir))
 }
@@ -149,14 +151,29 @@ fn lossy(name: Option<&OsStr>) -> String {
         .unwrap_or_default()
 }
 
-/// `(topic, id, path)` of every `<topic>/<id>.md` in the rules directory.
-fn rule_files(dir: &Path) -> Result<Vec<(String, String, PathBuf)>, ShellError> {
-    if !dir.is_dir() {
+/// The owner's plug-in folder, `~/.revy-review/`: rules and reviewers on top of the skill's.
+fn plugin_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".revy-review"))
+}
+
+/// Every rules directory, in load order: the skill's, which must exist, then the plug-in
+/// folder's when it has one.
+fn rule_dirs(state: &State) -> Result<Vec<PathBuf>, ShellError> {
+    let skill = state.rules.as_path();
+    if !skill.is_dir() {
         return Err(ShellError::Usage(format!(
             "rules directory {} (state.json `rules`) does not exist",
-            dir.display()
+            skill.display()
         )));
     }
+    let plugin = plugin_dir()
+        .map(|dir| dir.join("rules"))
+        .filter(|dir| dir.is_dir());
+    Ok(std::iter::once(skill.to_path_buf()).chain(plugin).collect())
+}
+
+/// `(topic, id, path)` of every `<topic>/<id>.md` in a rules directory.
+fn rule_files(dir: &Path) -> Result<Vec<(String, String, PathBuf)>, ShellError> {
     let mut found = Vec::new();
     for topic in git::subdirectories(dir)? {
         for file in git::files(&topic, "md")? {
@@ -164,6 +181,23 @@ fn rule_files(dir: &Path) -> Result<Vec<(String, String, PathBuf)>, ShellError> 
         }
     }
     Ok(found)
+}
+
+/// Every plug-in reviewer, in file-name order, and the errors of the files that define none.
+fn plugin_reviewers() -> Result<(Vec<Reviewer>, Vec<Diagnostic>), ShellError> {
+    let mut found = Vec::new();
+    let mut errors = Vec::new();
+    let Some(dir) = plugin_dir() else {
+        return Ok((found, errors));
+    };
+    for path in git::files(&dir.join("reviewers"), "md")? {
+        let text = git::read(&path)?;
+        match plugins::parse(&lossy(path.file_stem()), path.clone(), &text) {
+            Ok(reviewer) => found.push(reviewer),
+            Err(message) => errors.push(Diagnostic::new(path.display().to_string(), message)),
+        }
+    }
+    Ok((found, errors))
 }
 
 /// The review directory, loaded and checked clean, with the change it reviews.
@@ -174,13 +208,18 @@ fn checked(dir: &Path) -> Result<Result<(ReviewDir, Change), Vec<Diagnostic>>, S
     };
     let state = &review_dir.state;
     let repo = state.repo.as_path();
-    let rules: BTreeSet<String> = rule_files(state.rules.as_path())?
-        .into_iter()
-        .map(|(_, id, _)| id)
-        .collect();
+    let mut rules = BTreeSet::new();
+    for rules_dir in rule_dirs(state)? {
+        rules.extend(rule_files(&rules_dir)?.into_iter().map(|(_, id, _)| id));
+    }
+    // A blank plug-in file is `revy-review rules`'s to report; nobody dispatches it.
+    let (plugin, _) = plugin_reviewers()?;
+    let reviewers = plugins::numbered(&plugin, BUILT_IN_REVIEWERS + 1)
+        .last()
+        .map_or(BUILT_IN_REVIEWERS, |(n, _)| n);
     let change = git::change(repo, &state.base, &state.head)?;
     let head = git::head_files(repo, &state.head, review_dir.cited_paths())?;
-    let errors = check::check(&review_dir, &rules, &change, &head);
+    let errors = check::check(&review_dir, &rules, reviewers, &change, &head);
     Ok(if errors.is_empty() {
         Ok((review_dir, change))
     } else {
@@ -190,20 +229,28 @@ fn checked(dir: &Path) -> Result<Result<(ReviewDir, Change), Vec<Diagnostic>>, S
 
 fn run_rules(dir: &Path) -> Result<Outcome, ShellError> {
     let state = valid!(read_state(dir)?);
-    let rules_dir = state.rules.as_path();
-    let mut rules: Vec<Rule> = Vec::new();
+    let mut sets = Vec::new();
     let mut errors = Vec::new();
-    for (topic, id, path) in rule_files(rules_dir)? {
-        match rules::parse(&topic, &id, &git::read(&path)?) {
-            Ok(rule) => rules.push(rule),
-            Err(message) => errors.push(Diagnostic::new(path.display().to_string(), message)),
+    for rules_dir in rule_dirs(&state)? {
+        let mut set = RuleSet {
+            dir: rules_dir,
+            rules: Vec::new(),
+        };
+        for (topic, id, path) in rule_files(&set.dir)? {
+            match rules::parse(&topic, &id, &git::read(&path)?) {
+                Ok(rule) => set.rules.push(rule),
+                Err(message) => errors.push(Diagnostic::new(path.display().to_string(), message)),
+            }
         }
+        sets.push(set);
     }
-    errors.extend(rules::duplicates(&rules, rules_dir));
+    errors.extend(rules::duplicates(&sets));
+    let (plugin, plugin_errors) = plugin_reviewers()?;
+    errors.extend(plugin_errors);
     let change = git::change(state.repo.as_path(), &state.base, &state.head)?;
     let langs: BTreeSet<&str> = change.files().filter_map(rules::lang_of).collect();
     Ok(Outcome {
-        stdout: rules::index(&rules, &langs, rules_dir),
+        stdout: rules::index(&sets, &langs) + &plugins::index(&plugin, BUILT_IN_REVIEWERS + 1),
         warnings: Vec::new(),
         errors,
     })

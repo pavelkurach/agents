@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::PathBuf;
 
 use crate::model::{Diagnostic, RepoPath, repeats};
 
@@ -85,30 +85,47 @@ pub fn parse(topic: &str, id: &str, text: &str) -> Result<Rule, String> {
     })
 }
 
-/// Rules sharing an id, which findings could not tell apart.
-pub fn duplicates(rules: &[Rule], dir: &Path) -> Vec<Diagnostic> {
-    let file = |rule: &Rule| format!("{}/{}/{}.md", dir.display(), rule.topic, rule.id);
-    repeats(rules, |rule| rule.id.clone())
+/// The rules of one rules directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleSet {
+    pub dir: PathBuf,
+    pub rules: Vec<Rule>,
+}
+
+impl RuleSet {
+    fn file(&self, rule: &Rule) -> String {
+        format!("{}/{}/{}.md", self.dir.display(), rule.topic, rule.id)
+    }
+}
+
+/// Rules sharing an id, within or across rules directories, which findings could not tell apart.
+pub fn duplicates(sets: &[RuleSet]) -> Vec<Diagnostic> {
+    let rules: Vec<(String, &Rule)> = sets
+        .iter()
+        .flat_map(|set| set.rules.iter().map(move |rule| (set.file(rule), rule)))
+        .collect();
+    repeats(&rules, |(_, rule)| rule.id.clone())
         .into_iter()
         .filter_map(|(index, first)| Some((rules.get(index)?, rules.get(first)?)))
-        .map(|(rule, first)| {
-            Diagnostic::new(
-                file(rule),
-                format!("rule id {} is also {}", rule.id, file(first)),
-            )
+        .map(|((file, rule), (first, _))| {
+            Diagnostic::new(file, format!("rule id {} is also {first}", rule.id))
         })
         .collect()
 }
 
-/// One line per rule for the change's languages: `<id> (<topic>) [<langs>] — <When>`.
-pub fn index(rules: &[Rule], langs: &BTreeSet<&str>, dir: &Path) -> String {
-    let mut out = format!("Rule files: {}/<topic>/<id>.md\n", dir.display());
-    for rule in rules.iter().filter(|rule| rule.langs.covers_any(langs)) {
-        let _ = writeln!(
-            out,
-            "{} ({}) [{}] — {}",
-            rule.id, rule.topic, rule.langs, rule.when
-        );
+/// Per rules directory, a `Rule files:` header and one line per rule for the change's
+/// languages: `<id> (<topic>) [<langs>] — <When>`.
+pub fn index(sets: &[RuleSet], langs: &BTreeSet<&str>) -> String {
+    let mut out = String::new();
+    for set in sets {
+        let _ = writeln!(out, "Rule files: {}/<topic>/<id>.md", set.dir.display());
+        for rule in set.rules.iter().filter(|rule| rule.langs.covers_any(langs)) {
+            let _ = writeln!(
+                out,
+                "{} ({}) [{}] — {}",
+                rule.id, rule.topic, rule.langs, rule.when
+            );
+        }
     }
     out
 }

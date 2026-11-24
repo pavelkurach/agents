@@ -8,9 +8,7 @@
 mod support;
 
 use predicates::prelude::PredicateBooleanExt;
-use support::{
-    Fixture, empty_review, fixture, read, review_with_two_findings, valid_verified, write,
-};
+use support::{Fixture, fixture, read, review_with_two_findings, valid_verified, write};
 
 const RENDERED: &str = "# Review: feature
 
@@ -39,7 +37,7 @@ fn with_verified() -> Fixture {
     let fx = fixture();
     fx.write_json("verified.json", &valid_verified());
     fx.write_json("reviews/1.json", &review_with_two_findings());
-    fx.write_json("reviews/2.json", &empty_review(2));
+    fx.write_empty_reviews_2_to_4();
     fx
 }
 
@@ -111,7 +109,7 @@ fn sync_refuses_a_review_directory_that_does_not_check_clean() {
     let assert = sync(&fx);
 
     assert.failure().stderr(
-        "reviews/2.json missing: state.json reviewers = 2 needs reviews/1.json..2.json, one reviewer subagent per lens\n",
+        "reviews/2.json missing: the 4 built-in reviewers and the plug-in reviewers `revy-review rules` lists need reviews/1.json..4.json, one subagent each\n",
     );
     assert!(!fx.dir.path().join("report.md").exists());
 }

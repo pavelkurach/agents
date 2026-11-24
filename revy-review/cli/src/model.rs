@@ -282,27 +282,6 @@ impl FromStr for Sha {
 
 deserialize_from_str!(Site, Text, Sha);
 
-/// How many reviewer subagents the run dispatches: one draw of the two-lens split, or two.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(try_from = "u32")]
-pub struct Reviewers(u32);
-
-impl Reviewers {
-    pub const fn count(self) -> u32 {
-        self.0
-    }
-}
-
-impl TryFrom<u32> for Reviewers {
-    type Error = String;
-    fn try_from(count: u32) -> Result<Self, String> {
-        match count {
-            2 | 4 => Ok(Self(count)),
-            other => Err(format!("reviewers must be 2 or 4, got {other}")),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "PathBuf")]
 pub struct AbsolutePath(PathBuf);
@@ -331,7 +310,6 @@ pub struct State {
     pub target: Text,
     pub base: Sha,
     pub head: Sha,
-    pub reviewers: Reviewers,
     /// The rules directory: the skill's `rules/`.
     pub rules: AbsolutePath,
 }

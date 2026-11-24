@@ -1,6 +1,6 @@
 //! Shared fixtures for the `revy-review` commands:
-//! a temp git repository with one base..head change, a review directory and a
-//! rules directory.
+//! a temp git repository with one base..head change, a review directory, a
+//! rules directory, and a home directory for the plug-in folder `~/.revy-review/`.
 #![allow(dead_code, unreachable_pub)]
 
 use std::path::Path;
@@ -23,6 +23,8 @@ pub struct Fixture {
     pub repo: tempfile::TempDir,
     pub dir: tempfile::TempDir,
     pub rules: tempfile::TempDir,
+    /// `HOME` of every command run, so the owner's real `~/.revy-review/` stays out.
+    pub home: tempfile::TempDir,
     pub base: String,
     pub head: String,
 }
@@ -84,26 +86,26 @@ pub fn fixture() -> Fixture {
         repo,
         dir: tempfile::tempdir().expect("tempdir"),
         rules,
+        home: tempfile::tempdir().expect("tempdir"),
         base,
         head,
     };
-    fixture.write_state_with_reviewers(2);
+    fixture.write_state(&json!({
+        "repo": fixture.repo.path(),
+        "target": "feature",
+        "base": fixture.base,
+        "head": fixture.head,
+        "mode": "team",
+        "round": 1,
+        "rules": fixture.rules.path(),
+    }));
     fixture
 }
 
 impl Fixture {
-    /// `state.json` with the given raw `reviewers` value.
-    pub fn write_state_with_reviewers(&self, reviewers: u64) {
-        self.write_state(&json!({
-            "repo": self.repo.path(),
-            "target": "feature",
-            "base": self.base,
-            "head": self.head,
-            "mode": "team",
-            "round": 1,
-            "reviewers": reviewers,
-            "rules": self.rules.path(),
-        }));
+    /// The plug-in folder, `~/.revy-review/`; absent until a test writes into it.
+    pub fn plugin(&self) -> std::path::PathBuf {
+        self.home.path().join(".revy-review")
     }
 
     pub fn write_state(&self, state: &Value) {
@@ -118,10 +120,20 @@ impl Fixture {
         );
     }
 
+    /// Built-in reviewers 2..=4, each covering every changed file and finding nothing;
+    /// reviewer 1 is left to the test.
+    pub fn write_empty_reviews_2_to_4(&self) {
+        for n in 2..=4 {
+            self.write_json(&format!("reviews/{n}.json"), &empty_review(n));
+        }
+    }
+
     /// `revy-review` run from the review directory.
     pub fn revy_review(&self) -> Command {
         let mut command = Command::cargo_bin("revy-review").expect("binary `revy-review` builds");
-        command.current_dir(self.dir.path());
+        command
+            .current_dir(self.dir.path())
+            .env("HOME", self.home.path());
         command
     }
 }
