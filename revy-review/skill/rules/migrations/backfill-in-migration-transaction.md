@@ -1,0 +1,7 @@
+# backfill-in-migration-transaction
+langs: any
+
+When: Schema migration updates, inserts or deletes rows of an existing table (`RunPython`, `op.execute`, `update_all`, a bulk `UPDATE`/`INSERT … SELECT`).
+Ask: What transaction does the data step run in? Django wraps each migration in one transaction on Postgres, so batching inside `RunPython` still commits once unless the migration sets `atomic = False`. Alembic runs every pending migration in one transaction unless `env.py` sets `transaction_per_migration=True`. Rails wraps each migration unless it calls `disable_ddl_transaction!`, and Flyway wraps each one unless `group=true` merges them. Until the commit, every touched row stays locked against application updates, and a lock taken by DDL earlier in the same transaction stays held. On Postgres, one long transaction also holds back vacuum, so the table bloats and replicas lag; on MySQL, the undo history grows and replicas apply the change as one event. How many rows does production hold, and does deploy wait for the step to finish?
+Not when: a fixed handful of reference rows · the table is created in the same migration.
+Report as: `<migration>` rewrites `<rows>` of `<table>` in one transaction`<, after `ALTER …`>`: updates to those rows`<, or the whole table>` block until it commits, and vacuum or replicas fall behind for the duration; fix: put the schema change in its own migration and run the backfill as committed batches outside the migration transaction (`atomic = False`, a separate job), resumable per `migrations/backfill-not-resumable`.

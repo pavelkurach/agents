@@ -1,0 +1,6 @@
+# backfill-not-resumable
+langs: any
+
+When: Batched backfill or data-fix loop over a table added or changed, in a migration, management command, rake task or job.
+Ask: After a crash at batch k, does a rerun resume from the remaining work? It resumes when each batch selects rows by a remaining-work predicate (`WHERE new_col IS NULL`) and keyset-pages on the primary key. It restarts from zero when the batches use an offset or an in-memory counter, which is safe only if the step converges (`migrations/data-migration-compounds-on-rerun`). It skips rows when it saves a checkpoint before the batch commits, or when it `OFFSET`-pages over a predicate its own updates change, since each committed batch shifts the rows still matching and the next offset jumps past them. Are rows written by live traffic during the run covered, by dual-writing new code or a final pass, and does the loop end when a row cannot be converted (null or malformed source)?
+Report as: `<backfill>` pages `<table>` by `<offset / counter / early checkpoint>`: after `<a crash / its own updates>` it `<redoes every batch / skips rows>`, leaving `<column>` unfilled for rows that the next migration's `NOT NULL` or the new code assumes; fix: keyset batches on the primary key over a remaining-work predicate, committed one at a time, with a final pass after dual-writes start.
