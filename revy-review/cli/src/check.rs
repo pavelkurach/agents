@@ -9,9 +9,9 @@ use crate::problem::{self, Problem};
 use crate::review::{self, Review};
 use crate::verified::{self, Verified};
 
-/// Reviewers 1..=4 are built in: lenses 1+2 and 3+4, each drawn twice. Plug-in reviewers
-/// number on from 5, then checks, then the investigator.
-pub const BUILT_IN_REVIEWERS: u32 = 4;
+/// Reviewers 1..=4 review the whole change through lenses 1+2 and 3+4, each drawn twice.
+/// Specialists number on from 5, then checks, then the investigator.
+pub const LENS_REVIEWERS: u32 = 4;
 
 /// The parsed files of one review directory; absent files are `None` or empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,8 +70,8 @@ impl ReviewDir {
     }
 }
 
-/// `reviewers` counts every reviewer subagent, numbered 1..=reviewers: the built-in ones,
-/// then the plug-in reviewers.
+/// `reviewers` counts every reviewer subagent, numbered 1..=reviewers: the lens reviewers,
+/// then the specialists.
 pub fn check(
     dir: &ReviewDir,
     rules: &BTreeSet<String>,
@@ -88,7 +88,21 @@ pub fn check(
             .strip_prefix("reviews/")
             .and_then(|name| name.strip_suffix(".json"))
             .unwrap_or(file);
-        errors.extend(review::check(file, stem, review, rules, change, head));
+        // A specialist reviews only what its prompt covers, which the CLI cannot know, and
+        // the investigator only suspicions: neither owes coverage of the change.
+        let specialist = stem
+            .parse::<u32>()
+            .is_ok_and(|n| (LENS_REVIEWERS + 1..=reviewers).contains(&n));
+        let owes_coverage = !specialist && !review.is_investigator();
+        errors.extend(review::check(
+            file,
+            stem,
+            review,
+            owes_coverage,
+            rules,
+            change,
+            head,
+        ));
     }
     if let Some(doc) = &dir.investigations {
         errors.extend(investigations::check(doc, &dir.reviews));
@@ -116,7 +130,7 @@ fn complete(dir: &ReviewDir, reviewers: u32) -> Vec<Diagnostic> {
         .map(|file| {
             Diagnostic::new(
                 format!("{file} missing"),
-                format!("the {BUILT_IN_REVIEWERS} built-in reviewers and the plug-in reviewers `revy-review rules` lists need reviews/1.json..{reviewers}.json, one subagent each"),
+                format!("the {LENS_REVIEWERS} lens reviewers and the specialists `revy-review rules` lists need reviews/1.json..{reviewers}.json, one subagent each"),
             )
         });
     let suspicions: Vec<String> = investigations::raised(&dir.reviews)

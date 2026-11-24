@@ -310,8 +310,8 @@ pub struct State {
     pub target: Text,
     pub base: Sha,
     pub head: Sha,
-    /// The rules directory: the skill's `rules/`.
-    pub rules: AbsolutePath,
+    /// This skill's directory: its `rules/` and `reviewers/` (specialists) load first.
+    pub skill: AbsolutePath,
 }
 
 /// Parses JSON into `T`, naming the failing field path on error.

@@ -109,7 +109,7 @@ fn sync_refuses_a_review_directory_that_does_not_check_clean() {
     let assert = sync(&fx);
 
     assert.failure().stderr(
-        "reviews/2.json missing: the 4 built-in reviewers and the plug-in reviewers `revy-review rules` lists need reviews/1.json..4.json, one subagent each\n",
+        "reviews/2.json missing: the 4 lens reviewers and the specialists `revy-review rules` lists need reviews/1.json..4.json, one subagent each\n",
     );
     assert!(!fx.dir.path().join("report.md").exists());
 }

@@ -213,7 +213,7 @@ pub struct Review {
 }
 
 impl Review {
-    /// The investigator reviews only suspicions, so it owes no coverage of the change.
+    /// The investigator's file: findings it confirmed from suspicions, not a review of the change.
     pub fn is_investigator(&self) -> bool {
         self.lens
             .as_ref()
@@ -266,6 +266,7 @@ pub fn check(
     file: &str,
     stem: &str,
     review: &Review,
+    owes_coverage: bool,
     rules: &BTreeSet<String>,
     change: &Change,
     head: &HeadFiles,
@@ -333,7 +334,7 @@ pub fn check(
             Verdict::Fine | Verdict::Finding(_) => {}
         }
     }
-    if !review.is_investigator() {
+    if owes_coverage {
         let covered: BTreeSet<&RepoPath> =
             review.ledger.iter().map(|entry| &entry.site.path).collect();
         for path in change.files().filter(|path| !covered.contains(path)) {

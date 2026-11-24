@@ -225,17 +225,17 @@ fn directory_without_state_is_an_actionable_error() {
 }
 
 #[test]
-fn state_without_a_rules_directory_is_rejected() {
+fn state_without_a_skill_directory_is_rejected() {
     let fx = fixture();
     let mut state: Value =
         serde_json::from_str(&support::read(fx.dir.path(), "state.json")).unwrap();
-    state.as_object_mut().unwrap().remove("rules");
+    state.as_object_mut().unwrap().remove("skill");
     fx.write_state(&state);
 
     let assert = check(&fx);
 
     assert.failure().stderr(predicates::str::starts_with(
-        "state.json: missing field `rules`",
+        "state.json: missing field `skill`",
     ));
 }
 
@@ -318,7 +318,7 @@ fn unknown_rule_id_is_rejected() {
 }
 
 #[test]
-fn finding_citing_a_plugin_rule_passes() {
+fn finding_citing_a_plug_in_rule_passes() {
     let mut review = valid_review();
     review["findings"][0]["rule"] = json!("no-print-debugging");
     let fx = with_review(&review);
@@ -427,6 +427,41 @@ fn reviewer_file_with_empty_ledger_is_rejected() {
 
     assert.failure().stderr(
         "reviews/1.json: ledger: changed file src/calc.rs has no ledger entry\nreviews/1.json: ledger: changed file src/util.py has no ledger entry\n",
+    );
+}
+
+#[test]
+fn specialist_review_with_an_empty_ledger_is_accepted() {
+    let mut review = empty_review(5);
+    review["lens"] = json!("security");
+    review["ledger"] = json!([]);
+    let fx = fixture();
+    fx.write_json("reviews/5.json", &review);
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+
+    let assert = check(&fx);
+
+    assert
+        .success()
+        .stdout("reviews/5.json: ok (0 findings, 0 ledger entries)\n");
+}
+
+#[test]
+fn review_numbered_past_the_specialists_owes_coverage() {
+    let mut review = empty_review(5);
+    review["lens"] = json!("duplication");
+    review["ledger"] = json!([]);
+    let fx = fixture();
+    fx.write_json("reviews/5.json", &review);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "reviews/5.json: ledger: changed file src/calc.rs has no ledger entry\nreviews/5.json: ledger: changed file src/util.py has no ledger entry\n",
     );
 }
 
@@ -1208,7 +1243,7 @@ fn scope_creep_id_unknown_to_problem_is_rejected() {
 
 // --- verified.json: every reviewer and suspicion accounted for ------------------
 
-const NEEDS_1_TO_4: &str = "the 4 built-in reviewers and the plug-in reviewers `revy-review rules` lists need reviews/1.json..4.json, one subagent each\n";
+const NEEDS_1_TO_4: &str = "the 4 lens reviewers and the specialists `revy-review rules` lists need reviews/1.json..4.json, one subagent each\n";
 
 fn with_reviews_and_empty_verified(numbers: &[u64]) -> Fixture {
     let fx = fixture();
@@ -1238,7 +1273,7 @@ fn gate_dropped(why: &str) -> Value {
 }
 
 #[test]
-fn verified_with_a_plugin_reviewer_and_its_file_passes() {
+fn verified_with_a_specialist_and_its_file_passes() {
     let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4, 5]);
     write(
         &fx.plugin(),
@@ -1252,7 +1287,7 @@ fn verified_with_a_plugin_reviewer_and_its_file_passes() {
 }
 
 #[test]
-fn verified_with_a_plugin_reviewer_but_no_file_for_it_is_rejected() {
+fn verified_with_a_specialist_but_no_file_for_it_is_rejected() {
     let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4]);
     write(
         &fx.plugin(),
@@ -1263,7 +1298,7 @@ fn verified_with_a_plugin_reviewer_but_no_file_for_it_is_rejected() {
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "reviews/5.json missing: the 4 built-in reviewers and the plug-in reviewers `revy-review rules` lists need reviews/1.json..5.json, one subagent each\n",
+        "reviews/5.json missing: the 4 lens reviewers and the specialists `revy-review rules` lists need reviews/1.json..5.json, one subagent each\n",
     );
 }
 

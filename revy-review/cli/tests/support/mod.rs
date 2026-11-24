@@ -1,6 +1,6 @@
 //! Shared fixtures for the `revy-review` commands:
-//! a temp git repository with one base..head change, a review directory, a
-//! rules directory, and a home directory for the plug-in folder `~/.revy-review/`.
+//! a temp git repository with one base..head change, a review directory, a skill
+//! directory with rules, and a home directory for the plug-in folder `~/.revy-review/`.
 #![allow(dead_code, unreachable_pub)]
 
 use std::path::Path;
@@ -22,7 +22,8 @@ pub const GO_RULE: &str = "# defer-in-loop\nlangs: go\n\nWhen: The diff adds a `
 pub struct Fixture {
     pub repo: tempfile::TempDir,
     pub dir: tempfile::TempDir,
-    pub rules: tempfile::TempDir,
+    /// The skill directory; its `rules/` holds the fixture's rules.
+    pub skill: tempfile::TempDir,
     /// `HOME` of every command run, so the owner's real `~/.revy-review/` stays out.
     pub home: tempfile::TempDir,
     pub base: String,
@@ -59,7 +60,7 @@ pub fn read(root: &Path, relative: &str) -> String {
 
 /// base: `src/calc.rs`, `README.md`; head: `src/calc.rs` changed on line 2 and
 /// `src/util.py` added. The review directory holds `state.json` for that range
-/// and the fixture's rules directory.
+/// and the fixture's skill directory.
 pub fn fixture() -> Fixture {
     let repo = tempfile::tempdir().expect("tempdir");
     let root = repo.path();
@@ -77,15 +78,23 @@ pub fn fixture() -> Fixture {
     git(root, &["commit", "-q", "-m", "head"]);
     let head = git(root, &["rev-parse", "HEAD"]);
 
-    let rules = tempfile::tempdir().expect("tempdir");
-    write(rules.path(), "logic/edge-of-range-change.md", EDGE_RULE);
-    write(rules.path(), "rust/arc-mutex-single-owner.md", ARC_RULE);
-    write(rules.path(), "go/defer-in-loop.md", GO_RULE);
+    let skill = tempfile::tempdir().expect("tempdir");
+    write(
+        skill.path(),
+        "rules/logic/edge-of-range-change.md",
+        EDGE_RULE,
+    );
+    write(
+        skill.path(),
+        "rules/rust/arc-mutex-single-owner.md",
+        ARC_RULE,
+    );
+    write(skill.path(), "rules/go/defer-in-loop.md", GO_RULE);
 
     let fixture = Fixture {
         repo,
         dir: tempfile::tempdir().expect("tempdir"),
-        rules,
+        skill,
         home: tempfile::tempdir().expect("tempdir"),
         base,
         head,
@@ -97,12 +106,17 @@ pub fn fixture() -> Fixture {
         "head": fixture.head,
         "mode": "team",
         "round": 1,
-        "rules": fixture.rules.path(),
+        "skill": fixture.skill.path(),
     }));
     fixture
 }
 
 impl Fixture {
+    /// The skill's rules directory.
+    pub fn rules(&self) -> std::path::PathBuf {
+        self.skill.path().join("rules")
+    }
+
     /// The plug-in folder, `~/.revy-review/`; absent until a test writes into it.
     pub fn plugin(&self) -> std::path::PathBuf {
         self.home.path().join(".revy-review")

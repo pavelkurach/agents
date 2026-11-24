@@ -114,12 +114,18 @@ pub fn duplicates(sets: &[RuleSet]) -> Vec<Diagnostic> {
 }
 
 /// Per rules directory, a `Rule files:` header and one line per rule for the change's
-/// languages: `<id> (<topic>) [<langs>] — <When>`.
-pub fn index(sets: &[RuleSet], langs: &BTreeSet<&str>) -> String {
+/// languages, of the given topics (`None`: every topic): `<id> (<topic>) [<langs>] — <When>`.
+pub fn index(
+    sets: &[RuleSet],
+    langs: &BTreeSet<&str>,
+    topics: Option<&BTreeSet<String>>,
+) -> String {
     let mut out = String::new();
     for set in sets {
         let _ = writeln!(out, "Rule files: {}/<topic>/<id>.md", set.dir.display());
-        for rule in set.rules.iter().filter(|rule| rule.langs.covers_any(langs)) {
+        for rule in set.rules.iter().filter(|rule| {
+            rule.langs.covers_any(langs) && topics.is_none_or(|topics| topics.contains(&rule.topic))
+        }) {
             let _ = writeln!(
                 out,
                 "{} ({}) [{}] — {}",

@@ -18,22 +18,19 @@ fn rules(fx: &Fixture) -> assert_cmd::assert::Assert {
 }
 
 fn index_header(fx: &Fixture) -> String {
-    format!(
-        "Rule files: {}/<topic>/<id>.md\n",
-        fx.rules.path().display()
-    )
+    format!("Rule files: {}/<topic>/<id>.md\n", fx.rules().display())
 }
 
 #[test]
 fn shipped_rules_validate_and_are_indexed() {
     let fx = fixture();
     let shipped = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../skill/rules")
+        .join("../skill")
         .canonicalize()
         .unwrap();
     let mut state: serde_json::Value =
         serde_json::from_str(&support::read(fx.dir.path(), "state.json")).unwrap();
-    state["rules"] = json!(shipped);
+    state["skill"] = json!(shipped);
     fx.write_state(&state);
 
     let assert = rules(&fx);
@@ -61,7 +58,7 @@ fn index_lists_the_rules_for_the_changes_languages() {
 fn any_folder_in_the_rules_directory_is_a_topic() {
     let fx = fixture();
     write(
-        fx.rules.path(),
+        &fx.rules(),
         "team/duplicated-logic.md",
         "# duplicated-logic\nlangs: python, Rust\n\nWhen: always\nAsk: Does equivalent logic already exist?\n",
     );
@@ -76,7 +73,7 @@ fn any_folder_in_the_rules_directory_is_a_topic() {
 #[test]
 fn files_at_the_top_of_the_rules_directory_are_not_rules() {
     let fx = fixture();
-    write(fx.rules.path(), "README.md", "# Review rules\n");
+    write(&fx.rules(), "README.md", "# Review rules\n");
 
     let assert = rules(&fx);
 
@@ -89,7 +86,7 @@ fn files_at_the_top_of_the_rules_directory_are_not_rules() {
 fn rule_without_when_is_an_error_naming_its_file() {
     let fx = fixture();
     write(
-        fx.rules.path(),
+        &fx.rules(),
         "logic/no-when.md",
         "# no-when\nlangs: any\nAsk: a\n",
     );
@@ -98,7 +95,7 @@ fn rule_without_when_is_an_error_naming_its_file() {
 
     assert.failure().code(1).stderr(format!(
         "{}/logic/no-when.md: rule no-when has no `When: …` line\n",
-        fx.rules.path().display()
+        fx.rules().display()
     ));
 }
 
@@ -106,7 +103,7 @@ fn rule_without_when_is_an_error_naming_its_file() {
 fn rule_without_langs_is_an_error_naming_its_file() {
     let fx = fixture();
     write(
-        fx.rules.path(),
+        &fx.rules(),
         "logic/no-langs.md",
         "# no-langs\nWhen: always\n",
     );
@@ -115,7 +112,7 @@ fn rule_without_langs_is_an_error_naming_its_file() {
 
     assert.failure().code(1).stderr(format!(
         "{}/logic/no-langs.md: rule no-langs has no `langs: …` line\n",
-        fx.rules.path().display()
+        fx.rules().display()
     ));
 }
 
@@ -123,7 +120,7 @@ fn rule_without_langs_is_an_error_naming_its_file() {
 fn langs_naming_no_language_is_an_error() {
     let fx = fixture();
     write(
-        fx.rules.path(),
+        &fx.rules(),
         "logic/commas.md",
         "# commas\nlangs: , ,\nWhen: always\n",
     );
@@ -132,7 +129,7 @@ fn langs_naming_no_language_is_an_error() {
 
     assert.failure().code(1).stderr(format!(
         "{}/logic/commas.md: `langs: , ,` names no language; write `any` or a list\n",
-        fx.rules.path().display()
+        fx.rules().display()
     ));
 }
 
@@ -140,7 +137,7 @@ fn langs_naming_no_language_is_an_error() {
 fn same_id_in_two_topics_is_an_error() {
     let fx = fixture();
     write(
-        fx.rules.path(),
+        &fx.rules(),
         "rust/edge-of-range-change.md",
         support::EDGE_RULE,
     );
@@ -149,18 +146,14 @@ fn same_id_in_two_topics_is_an_error() {
 
     assert.failure().code(1).stderr(format!(
         "{0}/rust/edge-of-range-change.md: rule id edge-of-range-change is also {0}/logic/edge-of-range-change.md\n",
-        fx.rules.path().display()
+        fx.rules().display()
     ));
 }
 
 #[test]
 fn broken_rule_is_reported_and_the_valid_rules_are_still_indexed() {
     let fx = fixture();
-    write(
-        fx.rules.path(),
-        "logic/no-when.md",
-        "# no-when\nlangs: any\n",
-    );
+    write(&fx.rules(), "logic/no-when.md", "# no-when\nlangs: any\n");
 
     let assert = rules(&fx);
 
@@ -172,19 +165,15 @@ fn broken_rule_is_reported_and_the_valid_rules_are_still_indexed() {
 }
 
 #[test]
-fn missing_rules_directory_is_an_actionable_error() {
+fn skill_without_a_rules_directory_is_an_actionable_error() {
     let fx = fixture();
-    let gone = fx.rules.path().join("gone");
-    let mut state: serde_json::Value =
-        serde_json::from_str(&support::read(fx.dir.path(), "state.json")).unwrap();
-    state["rules"] = json!(gone);
-    fx.write_state(&state);
+    std::fs::remove_dir_all(fx.rules()).unwrap();
 
     let assert = rules(&fx);
 
     assert.failure().code(1).stderr(format!(
-        "rules directory {} (state.json `rules`) does not exist\n",
-        gone.display()
+        "skill directory {} (state.json `skill`) has no rules/ folder\n",
+        fx.skill.path().display()
     ));
 }
 
@@ -223,7 +212,7 @@ fn plugin_rule_reusing_a_built_in_id_is_an_error_naming_both_files() {
     assert.failure().code(1).stderr(format!(
         "{}/rules/team/edge-of-range-change.md: rule id edge-of-range-change is also {}/logic/edge-of-range-change.md\n",
         fx.plugin().display(),
-        fx.rules.path().display()
+        fx.rules().display()
     ));
 }
 
@@ -242,8 +231,13 @@ fn empty_plugin_folder_leaves_the_built_in_index() {
 }
 
 #[test]
-fn plugin_reviewers_are_listed_numbered_after_the_four_built_ins() {
+fn specialists_are_listed_skills_first_and_numbered_from_5() {
     let fx = fixture();
+    write(
+        fx.skill.path(),
+        "reviewers/migrations.md",
+        "Schema migrations on live tables.\n",
+    );
     write(
         &fx.plugin(),
         "reviewers/security.md",
@@ -258,16 +252,96 @@ fn plugin_reviewers_are_listed_numbered_after_the_four_built_ins() {
     let assert = rules(&fx);
 
     assert.success().stdout(predicates::str::ends_with(format!(
-        "Reviewer 5: api-compat — {0}/reviewers/api-compat.md\n\
-         Reviewer 6: security — {0}/reviewers/security.md\n",
+        "Reviewer 5: migrations — {}/reviewers/migrations.md\n\
+         Reviewer 6: api-compat — {1}/reviewers/api-compat.md\n\
+         Reviewer 7: security — {1}/reviewers/security.md\n",
+        fx.skill.path().display(),
         fx.plugin().display()
     )));
 }
 
 #[test]
-fn blank_plugin_reviewer_is_an_error_naming_its_file_and_is_not_listed() {
+fn specialist_named_in_both_sources_is_an_error_naming_both_files() {
     let fx = fixture();
-    write(&fx.plugin(), "reviewers/security.md", " \n\n");
+    write(
+        fx.skill.path(),
+        "reviewers/security.md",
+        "Built-in focus.\n",
+    );
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "The company's focus.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.failure().code(1).stderr(format!(
+        "{}/reviewers/security.md: specialist security is also {}/reviewers/security.md\n",
+        fx.plugin().display(),
+        fx.skill.path().display()
+    ));
+}
+
+#[test]
+fn specialist_with_rules_line_gets_an_index_of_those_folders_only() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "reviewers/bounds.md",
+        "rules: logic\n\nEvery changed range bound.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.success().stdout(predicates::str::ends_with(format!(
+        "Reviewer 5: bounds — {}/reviewers/bounds.md\n  {}  edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n",
+        fx.plugin().display(),
+        index_header(&fx)
+    )));
+}
+
+#[test]
+fn specialist_without_rules_line_is_listed_with_no_rules() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.success().stdout(format!(
+        "{}edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
+         arc-mutex-single-owner (rust) [rust] — The diff wraps state in `Arc<Mutex<_>>`.\n\
+         Reviewer 5: security — {}/reviewers/security.md\n",
+        index_header(&fx),
+        fx.plugin().display()
+    ));
+}
+
+#[test]
+fn rules_line_naming_an_unknown_folder_is_an_error() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "reviewers/bounds.md",
+        "rules: logic, nosuch\n\nEvery changed range bound.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.failure().code(1).stderr(format!(
+        "{}/reviewers/bounds.md: specialist bounds names rule folder `nosuch`, which no rules directory has\n",
+        fx.plugin().display()
+    ));
+}
+
+#[test]
+fn specialist_without_a_prompt_is_an_error_naming_its_file_and_is_not_listed() {
+    let fx = fixture();
+    write(&fx.plugin(), "reviewers/security.md", "rules: logic\n\n");
 
     let assert = rules(&fx);
 
@@ -276,7 +350,7 @@ fn blank_plugin_reviewer_is_an_error_naming_its_file_and_is_not_listed() {
         .code(1)
         .stdout(predicates::str::contains("Reviewer").not())
         .stderr(format!(
-            "{}/reviewers/security.md: plug-in reviewer security is blank; write its prompt: what it reviews and goes deepest on\n",
+            "{}/reviewers/security.md: specialist security has no prompt; write what it reviews\n",
             fx.plugin().display()
         ));
 }

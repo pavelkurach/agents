@@ -10,7 +10,7 @@ const USAGE: &str = "\
 Usage: revy-review <command> [dir]
 
 Commands (dir: the review directory holding state.json; default: current directory):
-  rules     validate the rules and plug-in reviewers, print the index for the change's languages
+  rules     validate the rules and specialists, print the index for the change's languages
   check     validate every file in the review directory and the accounting across them
   sync      render report.md from a clean review, or read back the owner's edits
   comments  print the post-ready comments from report.md
