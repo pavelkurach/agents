@@ -1,0 +1,7 @@
+# ddl-waits-in-lock-queue
+langs: any
+
+When: Migration runs any `ALTER`, `DROP`, `RENAME`, `TRUNCATE` or foreign-key add on an existing table, including changes that are metadata-only or instant.
+Ask: Does the migration set a lock timeout before the DDL? Postgres `lock_timeout` defaults to 0 and MySQL `lock_wait_timeout` to one year. While the DDL waits for its lock, every later query on the table queues behind it, including plain reads, and the queue drains only when the long transaction, idle-in-transaction session or anti-wraparound autovacuum ahead of it ends. Postgres takes `ACCESS EXCLUSIVE` for most `ALTER TABLE` forms, even an instant `ADD COLUMN`. `ADD FOREIGN KEY` takes `SHARE ROW EXCLUSIVE` on the referenced table as well, which is often the hottest one. MySQL online and `INSTANT` DDL still take an exclusive metadata lock at start and end. Locks are held until commit, so in a transaction that alters several tables, or alters and then backfills, each lock taken early blocks traffic for every later step (`migrations/backfill-in-migration-transaction`).
+Not when: the table is created in the same migration · nothing queries the table during the deploy.
+Report as: `<statement>` on `<table>` waits for its lock with no timeout: behind one long transaction it queues every read and write on `<table>`, and the deploy turns into an outage; fix: `SET lock_timeout` (Postgres, `SET LOCAL` inside a transaction) or `SET SESSION lock_wait_timeout` (MySQL) of a few seconds with retries, and one table per transaction.
