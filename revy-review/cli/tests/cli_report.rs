@@ -109,7 +109,7 @@ fn sync_refuses_a_review_directory_that_does_not_check_clean() {
     let assert = sync(&fx);
 
     assert.failure().stderr(
-        "reviews/2.json missing: the 4 lens reviewers and the specialists `revy-review rules` lists need reviews/1.json..4.json, one subagent each\n",
+        "reviews/2.json missing: the 4 lens reviewers and the specialists state.json records as dispatched need reviews/1.json..4.json, one subagent each\n",
     );
     assert!(!fx.dir.path().join("report.md").exists());
 }
@@ -225,6 +225,30 @@ fn sync_ignores_sections_it_does_not_post() {
         .success()
         .stdout("report.md: 2 findings (2 to post), 0 own findings\n")
         .stderr("");
+}
+
+#[test]
+fn sync_lists_each_skipped_specialist_with_its_reason() {
+    let fx = with_verified();
+    write(
+        &fx.plugin(),
+        "reviewers/migrations.md",
+        "dispatch: when relevant\n\nSchema migrations on live tables.\n",
+    );
+    fx.record_specialists(
+        &serde_json::json!({"migrations": {"skipped": "the change adds no migration"}}),
+    );
+
+    let assert = sync(&fx);
+
+    assert.success();
+    assert_eq!(
+        read(fx.dir.path(), "report.md"),
+        RENDERED.replace(
+            "## My findings\n",
+            "## Specialists skipped\n\n- migrations: the change adds no migration\n\n## My findings\n"
+        )
+    );
 }
 
 // --- suspicions ----------------------------------------------------------------

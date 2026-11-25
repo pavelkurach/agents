@@ -1,4 +1,5 @@
 rules: migrations, data
+dispatch: when relevant
 
 Review the schema and data migrations this change adds or alters, and the code they meet during the rollout: models and queries on the touched tables, backfill jobs, the deploy step that runs migrations, and old instances still serving traffic. Go deepest on three properties for every migration:
 - Concurrent: it runs against live production traffic and row counts. Name each lock it takes, how long the lock is held, and what else waits behind it.

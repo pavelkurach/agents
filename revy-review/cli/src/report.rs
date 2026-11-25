@@ -11,7 +11,14 @@ use crate::verified::Verified;
 pub const FILE: &str = "report.md";
 const OWN_SECTION: &str = "## My findings";
 
-pub fn render(target: &Text, verified: &Verified, unresolved: &[Unresolved]) -> String {
+/// `skipped`: `(name, reason)` of each specialist the coordinator did not dispatch, listed so
+/// the owner sees a wrong skip.
+pub fn render(
+    target: &Text,
+    verified: &Verified,
+    unresolved: &[Unresolved],
+    skipped: &[(&str, &Text)],
+) -> String {
     let mut out = format!("# Review: {target}\n\n");
     for finding in &verified.findings {
         let sites: Vec<String> = finding.sites.all().map(ToString::to_string).collect();
@@ -39,6 +46,13 @@ pub fn render(target: &Text, verified: &Verified, unresolved: &[Unresolved]) -> 
             item.open_question.as_str().trim(),
             item.check.as_str().trim(),
         );
+    }
+    if !skipped.is_empty() {
+        out.push_str("## Specialists skipped\n\n");
+        for (name, reason) in skipped {
+            let _ = writeln!(out, "- {name}: {}", reason.as_str().trim());
+        }
+        out.push('\n');
     }
     out.push_str(OWN_SECTION);
     out.push('\n');

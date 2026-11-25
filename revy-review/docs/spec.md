@@ -66,8 +66,12 @@ The agent resolves the target and records `base`/`head` in the review state; eve
 - Rules: see Rules.
 - Specialists: `reviewers/<name>.md` in the skill (the built-in focused reviewers) and in `~/.revy-review/` (the
   owner's), loaded in that order, file-name order within each; the file stem is the name, unique across both (a
-  duplicate is an error naming both files). A file is an optional `rules: <topic>, …` line, then the prompt (the
-  focus). Every specialist runs on every review, as reviewer n = 5, 6, … after the lens reviewers, with
+  duplicate is an error naming both files). A file is optional header lines in any order — `rules: <topic>, …`
+  and `dispatch: always | when relevant` (absent: `always`; any other value is an error naming the file) — then
+  the prompt (the focus). An `always` specialist runs on every review; a `when relevant` one runs when the
+  coordinator judges, from its prompt and the change, that the change has something for it, and when unsure it
+  runs — no path or extension matching. The coordinator records every decision in `state.json` `specialists`.
+  The dispatched specialists run as reviewer n = 5, 6, … in load order after the lens reviewers, with
   `reviewer.md` and its file in place of a lens; it reviews only what its focus covers, or writes an empty review
   when nothing falls under it. It receives the rules of its `rules:` topics from both rules folders, and no rules
   without the line; a topic no rules folder has is an error. A missing prompt is an error, and that file is not
@@ -89,8 +93,11 @@ The agent resolves the target and records `base`/`head` in the review state; eve
 ## Formats (contract between the skill and the helper)
 All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are stable strings.
 - `state.json`: `{"repo": abs path, "target": text, "base": sha, "head": sha, "mode": "self" | "team",
-  "round": n, "skill": abs path}` — written by the agent; every command reads it from the review directory (`mode`
-  and `round` steer only the skill). `skill` is this skill's directory. The helper, not the agent, resolves the
+  "round": n, "skill": abs path, "specialists": {name: "dispatched" | {"skipped": reason}}}` — written by the
+  agent; every command reads it from the review directory (`mode` and `round` steer only the skill).
+  `specialists` is added before the reviewers are dispatched and is the one record of which specialists ran:
+  `check` requires it once any review file exists (when specialists load), with exactly one decision per loaded
+  specialist, no unknown name, a non-blank reason per skip, and no skip of an `always` specialist. `skill` is this skill's directory. The helper, not the agent, resolves the
   sources from it (`<skill>/rules`, `<skill>/reviewers`, `~/.revy-review/rules`, `~/.revy-review/reviewers`): the
   layout lives in one place, `rules` and `check` see the same sources, and an absent plug-in folder needs no
   bookkeeping in the agent.
@@ -125,7 +132,7 @@ All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are
 - `verified.json`: `{"findings": [{"id": "F<k>", …same fields…, "merged_from": ["<n>.<k>", …]}], "dropped":
   [{"from": "<n>.<k>", "refuted_by": site, "why"}]}`. `check`: every reviewer finding appears
   exactly once in `merged_from` or `dropped`; `refuted_by` exists at head. With `verified.json` present, `check` also
-  requires `reviews/1.json..N.json` (N = 4 lens reviewers + the specialists that parse), unless `problem.json` has
+  requires `reviews/1.json..N.json` (N = 4 lens reviewers + the specialists `state.json` records as dispatched), unless `problem.json` has
   `blocks: true` and none of `reviews/1..N` exists (the gate stopped the review before reviewers ran), and, when any
   review holds a suspicion, `investigations.json`; confirmed findings are ordinary review findings and need the same
   exactly-once accounting.
@@ -133,7 +140,8 @@ All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are
   `### F<k>. <title>` then `- post: yes | no`, `- severity: …`, `- where: site, site`, a blank line, the body
   (why it breaks, then `Fix: …`) up to the next `##`/`###` heading. `## My findings` takes `- site [severity] — text`.
   Unresolved suspicions render after the findings under `## Suspicions (unconfirmed)` as `### <claim>` with
-  `- where:`, `- evidence:`, `- open question:` and `- check:` lines. Reading back, only `post: yes` finding blocks and
+  `- where:`, `- evidence:`, `- open question:` and `- check:` lines; skipped specialists then render under
+  `## Specialists skipped` as `- <name>: <reason>`, so a wrong skip is visible. Reading back, only `post: yes` finding blocks and
   own findings matter: a bad post flag, severity or site, or a posted block without its fix, is an error with
   `report.md:line`; a site outside the diff is a warning (it would post as a general comment). Every other block and
   section (suspicions, notes, anything the owner adds) is ignored and never posted.
@@ -149,11 +157,13 @@ Resolved details (skill and helper agree on these):
 - Gate findings reach the verifier: `not_met` → blocking, `partly` → non-blocking, one question per scope-creep entry; their
   `merged_from` ids are `C<k>` and `S<k>`, which `check` accepts when they exist in problem.json and
   requires exactly once each in `merged_from` or `dropped`.
-- Numbering: lens reviewers 1..4, specialists 5.. in load order with `lens` = the specialist's name, then the
-  investigator; `check` rejects any other review file numbered past the specialists.
+- Numbering: lens reviewers 1..4, then the dispatched specialists 5.. contiguous in load order (a skipped one
+  takes no number) with `lens` = the specialist's name, then the investigator; `check` rejects any other review
+  file numbered past the dispatched specialists. `rules` prints no specialist numbers, since it runs before the
+  dispatch decisions.
 - `revy-review rules` prints, per rules folder, a `Rule files: <dir>/<topic>/<id>.md` header, then
-  `<id> (<topic>) [<langs>] — <When>`; then per specialist `Reviewer <n>: <name> — <file>` with its own index
-  indented two spaces below it.
+  `<id> (<topic>) [<langs>] — <When>`; then per specialist `Specialist: <name> (dispatch: <mode>) — <file>` with its own
+  index indented two spaces below it.
 - `report.md` may hold a `## Notes` section for the owner; `comments` never prints it.
 - Exclusions everywhere use `post: no` (self mode: excluded from `fix`).
 - Self mode = the owner's own change (no target, own commit/range, or `fix`); team mode = someone else's PR/MR.
@@ -166,12 +176,12 @@ Resolved details (skill and helper agree on these):
 The crate in `cli/`: one standalone `revy-review` binary; the skill in `skill/` calls it.
 Pure and file-based except reading git objects for quotes and the diff.
 - `rules [dir]`: validates the rules folders and specialists and prints the index for the change's languages,
-  with each specialist's number and index.
+  with each specialist's dispatch mode and index.
 - `check [dir]`: validates every file present in the review directory (Formats above) and the accounting across
   them — `problem.json`, each `reviews/<n>.json` (a file with lens `investigator` owes no ledger coverage, since it
   reviews only suspicions), `investigations.json` (every suspicion resolved exactly once, ids exist, `confirmed` names
-  a finding in the investigator's file, `unresolved` carries a `check`), and `verified.json` (exactly-once
-  accounting, every reviewer lens's file, investigations for suspicions).
+  a finding in the investigator's file, `unresolved` carries a `check`), `state.json` `specialists` (the dispatch
+  decisions), and `verified.json` (exactly-once accounting, every lens reviewer's and dispatched specialist's file, investigations for suspicions).
 - `sync [dir]`: refuses a review that does not check clean; renders report.md from `verified.json` when absent,
   otherwise reads back the owner's edits.
 - `comments [dir]`: post-ready comment text for findings with `post: yes` and own findings, from report.md alone

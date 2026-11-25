@@ -7,10 +7,11 @@ use crate::investigations::{self, Investigations};
 use crate::model::{Diagnostic, RepoPath, State};
 use crate::problem::{self, Problem};
 use crate::review::{self, Review};
+use crate::specialists::{self, Specialist};
 use crate::verified::{self, Verified};
 
 /// Reviewers 1..=4 review the whole change through lenses 1+2 and 3+4, each drawn twice.
-/// Specialists number on from 5, then the investigator.
+/// The dispatched specialists number on from 5 in load order, then the investigator.
 pub const LENS_REVIEWERS: u32 = 4;
 
 /// The parsed files of one review directory; absent files are `None` or empty.
@@ -70,16 +71,24 @@ impl ReviewDir {
     }
 }
 
-/// `reviewers` counts every reviewer subagent, numbered 1..=reviewers: the lens reviewers,
-/// then the specialists.
+/// Reviewer subagents number 1..=reviewers: the lens reviewers, then the specialists
+/// `state.json` records as dispatched.
 pub fn check(
     dir: &ReviewDir,
     rules: &BTreeSet<String>,
-    reviewers: u32,
+    specialists: &[Specialist],
     change: &Change,
     head: &HeadFiles,
 ) -> Vec<Diagnostic> {
-    let mut errors = Vec::new();
+    let (dispatched, mut errors) = specialists::dispatched(
+        specialists,
+        dir.state.specialists.as_ref(),
+        !dir.reviews.is_empty(),
+    );
+    let reviewers = (LENS_REVIEWERS + 1..)
+        .zip(&dispatched)
+        .last()
+        .map_or(LENS_REVIEWERS, |(n, _)| n);
     if let Some(problem) = &dir.problem {
         errors.extend(problem::check("problem.json", problem, head));
     }
@@ -97,7 +106,7 @@ pub fn check(
             errors.push(Diagnostic::new(
                 format!("{file}: reviewer"),
                 format!(
-                    "there is no reviewer {n}: the {LENS_REVIEWERS} lens reviewers and the specialists `revy-review rules` lists are 1..{reviewers}, and only the investigator numbers after them"
+                    "there is no reviewer {n}: the {LENS_REVIEWERS} lens reviewers and the specialists state.json records as dispatched are 1..{reviewers}, and only the investigator numbers after them"
                 ),
             ));
         }
@@ -123,7 +132,7 @@ pub fn check(
     errors
 }
 
-/// What the verifier needs before it runs: every reviewer's file (unless a blocking gate
+/// What the verifier needs before it runs: every dispatched reviewer's file (unless a blocking gate
 /// stopped the review before any ran) and, when there are suspicions, their investigation.
 fn complete(dir: &ReviewDir, reviewers: u32) -> Vec<Diagnostic> {
     let present: BTreeSet<String> = dir.reviews.iter().map(|(file, _)| file.clone()).collect();
@@ -138,7 +147,7 @@ fn complete(dir: &ReviewDir, reviewers: u32) -> Vec<Diagnostic> {
         .map(|file| {
             Diagnostic::new(
                 format!("{file} missing"),
-                format!("the {LENS_REVIEWERS} lens reviewers and the specialists `revy-review rules` lists need reviews/1.json..{reviewers}.json, one subagent each"),
+                format!("the {LENS_REVIEWERS} lens reviewers and the specialists state.json records as dispatched need reviews/1.json..{reviewers}.json, one subagent each"),
             )
         });
     let suspicions: Vec<String> = investigations::raised(&dir.reviews)

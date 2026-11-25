@@ -442,6 +442,7 @@ fn specialist_review_with_an_empty_ledger_is_accepted() {
         "reviewers/security.md",
         "Authorization on every changed handler.\n",
     );
+    fx.record_specialists(&json!({"security": "dispatched"}));
 
     let assert = check(&fx);
 
@@ -461,7 +462,7 @@ fn review_numbered_past_the_specialists_is_rejected() {
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "reviews/5.json: reviewer: there is no reviewer 5: the 4 lens reviewers and the specialists `revy-review rules` lists are 1..4, and only the investigator numbers after them\n",
+        "reviews/5.json: reviewer: there is no reviewer 5: the 4 lens reviewers and the specialists state.json records as dispatched are 1..4, and only the investigator numbers after them\n",
     );
 }
 
@@ -1243,7 +1244,7 @@ fn scope_creep_id_unknown_to_problem_is_rejected() {
 
 // --- verified.json: every reviewer and suspicion accounted for ------------------
 
-const NEEDS_1_TO_4: &str = "the 4 lens reviewers and the specialists `revy-review rules` lists need reviews/1.json..4.json, one subagent each\n";
+const NEEDS_1_TO_4: &str = "the 4 lens reviewers and the specialists state.json records as dispatched need reviews/1.json..4.json, one subagent each\n";
 
 fn with_reviews_and_empty_verified(numbers: &[u64]) -> Fixture {
     let fx = fixture();
@@ -1280,6 +1281,7 @@ fn verified_with_a_specialist_and_its_file_passes() {
         "reviewers/security.md",
         "Authorization on every changed handler.\n",
     );
+    fx.record_specialists(&json!({"security": "dispatched"}));
 
     let assert = check(&fx);
 
@@ -1287,19 +1289,141 @@ fn verified_with_a_specialist_and_its_file_passes() {
 }
 
 #[test]
-fn verified_with_a_specialist_but_no_file_for_it_is_rejected() {
+fn verified_with_a_dispatched_specialist_but_no_file_for_it_is_rejected() {
     let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4]);
     write(
         &fx.plugin(),
         "reviewers/security.md",
         "Authorization on every changed handler.\n",
     );
+    fx.record_specialists(&json!({"security": "dispatched"}));
 
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "reviews/5.json missing: the 4 lens reviewers and the specialists `revy-review rules` lists need reviews/1.json..5.json, one subagent each\n",
+        "reviews/5.json missing: the 4 lens reviewers and the specialists state.json records as dispatched need reviews/1.json..5.json, one subagent each\n",
     );
+}
+
+const MIGRATIONS_WHEN_RELEVANT: &str =
+    "dispatch: when relevant\n\nSchema migrations on live tables.\n";
+
+#[test]
+fn verified_with_a_skipped_when_relevant_specialist_needs_no_file_for_it() {
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4]);
+    write(
+        &fx.plugin(),
+        "reviewers/migrations.md",
+        MIGRATIONS_WHEN_RELEVANT,
+    );
+    fx.record_specialists(&json!({"migrations": {"skipped": "the change adds no migration"}}));
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn skipping_an_always_specialist_is_rejected() {
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4]);
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+    fx.record_specialists(&json!({"security": {"skipped": "no handler changed"}}));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(format!(
+        "state.json: specialists.security: skipped, but {}/reviewers/security.md has `dispatch: always`; dispatch it\n",
+        fx.plugin().display()
+    ));
+}
+
+#[test]
+fn dispatched_specialists_number_on_from_5_past_a_skipped_one() {
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4, 5]);
+    write(
+        &fx.plugin(),
+        "reviewers/migrations.md",
+        MIGRATIONS_WHEN_RELEVANT,
+    );
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+    fx.record_specialists(&json!({
+        "migrations": {"skipped": "the change adds no migration"},
+        "security": "dispatched"
+    }));
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn specialist_without_a_recorded_decision_is_rejected() {
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4, 5]);
+    write(
+        &fx.plugin(),
+        "reviewers/migrations.md",
+        MIGRATIONS_WHEN_RELEVANT,
+    );
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+    fx.record_specialists(&json!({"security": "dispatched"}));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "state.json: specialists: no decision for specialist migrations; record it as dispatched or skipped\n",
+    );
+}
+
+#[test]
+fn reviews_with_specialists_but_no_recorded_decisions_are_rejected() {
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4]);
+    write(
+        &fx.plugin(),
+        "reviewers/migrations.md",
+        MIGRATIONS_WHEN_RELEVANT,
+    );
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "state.json: specialists: missing; record a decision for every specialist `revy-review rules` lists before dispatching reviewers: `\"<name>\": \"dispatched\"` or `\"<name>\": {\"skipped\": \"<reason>\"}`\n",
+    );
+}
+
+#[test]
+fn decision_for_an_unknown_specialist_is_rejected() {
+    let fx = with_reviews_and_empty_verified(&[1, 2, 3, 4]);
+    fx.record_specialists(&json!({"security": "dispatched"}));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "state.json: specialists.security: no such specialist; `revy-review rules` lists them\n",
+    );
+}
+
+#[test]
+fn skip_without_a_reason_is_rejected() {
+    let fx = fixture();
+    fx.record_specialists(&json!({"migrations": {"skipped": " "}}));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(predicates::str::starts_with(
+        "state.json: specialists.migrations.skipped: text must not be blank",
+    ));
 }
 
 #[test]

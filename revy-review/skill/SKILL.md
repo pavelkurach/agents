@@ -52,9 +52,14 @@ re-review. Team mode: the report says so, and you ask whether to run the deep re
 
 ## 1. Reviewers
 - `revy-review rules` validates the rules and specialists (this skill's and the owner's `~/.revy-review/`) and
-  prints the rules index for the languages the change touches, then one `Reviewer <n>: <name> — <file>` line per
-  specialist with that specialist's own index indented below it (none when its file names no `rules:`). Fix
-  errors with the owner, or report them and continue without the broken rule or specialist.
+  prints the rules index for the languages the change touches, then one `Specialist: <name> (dispatch: <mode>) —
+  <file>` line per specialist with that specialist's own index indented below it (none when its file names no
+  `rules:`). Fix errors with the owner, or report them and continue without the broken rule or specialist.
+- Decide each specialist. `always`: dispatch it. `when relevant`: read its file against the diff; skip it only when
+  the change holds nothing its prompt covers, and when unsure, dispatch it. Record every decision in `state.json`
+  as `"specialists": {"<name>": "dispatched" | {"skipped": "<one-line reason>"}, …}`; report.md lists the skips
+  with their reasons. The dispatched specialists are reviewers 5, 6, … in listed order. Done when `state.json`
+  names every listed specialist.
 - Dispatch together, as separate subagents whatever the diff size — each starts from a clean context, which is what
   makes their verdicts independent:
   - 4 lens reviewer subagents with `reviewer.md`, n = 1..4: reviewer 1 takes lenses 1+2 and reviewer 2 lenses 3+4;
@@ -64,24 +69,24 @@ re-review. Team mode: the report says so, and you ask whether to run the deep re
     3. tests and edge inputs — the input matrix the code branches on, tests that pass by coincidence, boundaries
     4. design and simplicity — how sibling code and existing helpers do the same job, misuse, duplication, simpler
        data shapes
-  - one specialist subagent per `Reviewer <n>:` line with `reviewer.md`, at that n, given its file in place of a
+  - one specialist subagent per dispatched specialist with `reviewer.md`, at its n, given its file in place of a
     lens and, as its rules index, the lines indented below its line, indent removed (none when there are none).
 
   Inputs for each: repo, base, head, n, lens, the problem statement and criteria from `problem.json`, the rules
-  index (the output of `revy-review rules` up to its first `Reviewer` line), the output path `reviews/<n>.json` in
+  index (the output of `revy-review rules` up to its first `Specialist:` line), the output path `reviews/<n>.json` in
   the review directory.
 - Done when every dispatched subagent has returned and `revy-review check` is clean.
 
 ## 1b. Investigate
 When any review file holds a `suspect` entry, dispatch one investigator subagent with `investigator.md`, on the
 strongest model your harness offers at its highest reasoning effort; inputs: repo, base, head, the review
-directory, n = the next number after the last specialist (5 with none). Done when `revy-review check` is clean.
+directory, n = the next number after the last dispatched specialist (5 with none). Done when `revy-review check` is clean.
 No suspicions: skip this step.
 
 ## 2. Verify
 Dispatch one verifier subagent with `verifier.md`, always separate from the reviewers; inputs: repo, base, head,
 the review directory. Done when `revy-review check` is clean; once `verified.json` exists it also requires every
-lens reviewer's and specialist's `reviews/<n>.json` and, when there are suspicions, `investigations.json`.
+lens reviewer's and dispatched specialist's `reviews/<n>.json` and, when there are suspicions, `investigations.json`.
 
 ## 3. Report
 `revy-review sync` renders `report.md` from `verified.json` (it refuses a review that does not check clean). Your own notes for the owner (what you checked, assumptions, anything that
