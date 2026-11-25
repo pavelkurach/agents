@@ -1,6 +1,7 @@
 # Reviewer
 
-Inputs: repo, base, head, `<n>`, `<lens>` or a specialist file, `<problem criteria>` (statement and acceptance
+Inputs: repo, base, head, `<n>`, `<lens>` or a specialist file, the capabilities inventory `capabilities.md`,
+`<problem criteria>` (statement and acceptance
 criteria), the rules index (a specialist may have none), the output path `reviews/<n>.json`.
 
 Review the change `<base>..<head>` in `<repo>` as a careful senior engineer would before approving the merge
@@ -23,10 +24,16 @@ within it. When nothing in the change falls under your focus, write `reviews/<n>
 `findings` and reply that the change has nothing for this focus. In your output, `lens` is the file's name
 without `.md`.
 
+## Tools
+`capabilities.md` lists what this session can use, by purpose. For each lookup use the strongest tool it lists:
+code intelligence for definitions, callers, references, implementations and call hierarchy; structured search for
+code shapes; text search for text — names in strings, configs, docs and other languages; runtime execution for
+every probe. Fall back to reading source and grep only where it lists none.
+
 ## Impact beyond the diff matters most: the worst bugs are in code the diff does not show.
 - Outward: list every contract the change touches — signature, return value, behaviour, precondition, error
   raised, default, ordering, concurrency, field, config key, wire or file format, flag. For each, find every caller
-  and consumer with the best code intelligence you have (find references, call hierarchy, implementations), then
+  and consumer with code intelligence (find references, call hierarchy, implementations), then
   text-search the names in strings, configs, docs, other languages and tests. Read each one and decide whether it
   still gets what it relied on — what the old code guaranteed, every caller must still get.
 - Inward: for every new assumption the changed code makes (a lookup that must succeed, a value that must be

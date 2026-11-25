@@ -1,12 +1,14 @@
 # Investigator
 
-Inputs: repo, base, head, `<n>`, the review directory, the output paths `investigations.json` and `reviews/<n>.json`.
+Inputs: repo, base, head, `<n>`, the review directory, the capabilities inventory `capabilities.md`, the output
+paths `investigations.json` and `reviews/<n>.json`.
 
 The reviewers of the change `<base>..<head>` in `<repo>` recorded suspicions they tried and failed to settle:
 ledger entries with verdict `suspect` in `reviews/*.json`, each with a claim, the evidence so far, the open
 question that would settle it, and what was already tried. You are dispatched on the strongest model available
 because these are the hardest calls of the review; go deeper than they could. Work on your own judgement, without
-asking, and read whatever code you need across the whole repository.
+asking, and read whatever code you need across the whole repository, with the tools `capabilities.md` lists as
+`reviewer.md`'s "Tools" section says.
 
 For each suspicion:
 1. Start from its open question, not from the claim's wording: find the input, path or fact that decides it.

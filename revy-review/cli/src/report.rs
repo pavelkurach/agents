@@ -1,12 +1,13 @@
 //! `report.md`: rendered from `verified.json`, edited by the owner, and read
 //! back only for what posting needs; every other line is the owner's.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::diff::Change;
 use crate::investigations::Unresolved;
 use crate::model::{Diagnostic, Severity, Sha, Site, Sites, Text, VerifiedId};
-use crate::proof;
+use crate::proof::{self, TestSource};
 use crate::verified::Verified;
 
 pub const FILE: &str = "report.md";
@@ -15,11 +16,13 @@ const OWN_SECTION: &str = "## My findings";
 /// `skipped`: `(name, reason)` of each specialist the coordinator did not dispatch, listed so
 /// the owner sees a wrong skip.
 ///
-/// A proven finding's body carries its reproduction, so the comment posted from it does too.
+/// A proven finding's body carries its reproduction and, from `sources`, its test's code, so
+/// the comment posted from it does too.
 pub fn render(
     target: &Text,
     head: &Sha,
     verified: &Verified,
+    sources: &BTreeMap<VerifiedId, TestSource>,
     unresolved: &[Unresolved],
     skipped: &[(&str, &Text)],
 ) -> String {
@@ -37,7 +40,7 @@ pub fn render(
             finding
                 .proof
                 .as_ref()
-                .map(|proof| proof::render(proof) + "\n\n")
+                .map(|proof| proof::render(proof, sources.get(&finding.id)) + "\n\n")
                 .unwrap_or_default(),
             finding.fix.as_str().trim(),
         );
@@ -112,8 +115,11 @@ type Lines<'a> = Vec<(usize, &'a str)>;
 /// Finding blocks (`### F<k>. <title>`) and own findings; every other section is skipped.
 pub fn parse(text: &str) -> Result<Report, Vec<Diagnostic>> {
     let mut sections: Vec<(usize, &str, Lines<'_>)> = Vec::new();
+    let mut fence: Option<&str> = None;
     for (number, line) in (1..).zip(text.lines()) {
-        if line.starts_with("## ") || line.starts_with("### ") {
+        let heading = fence.is_none() && (line.starts_with("## ") || line.starts_with("### "));
+        fence = next_fence(fence, line);
+        if heading {
             sections.push((number, line.trim_end(), Vec::new()));
         } else if let Some((_, _, body)) = sections.last_mut() {
             body.push((number, line));
@@ -141,6 +147,19 @@ pub fn parse(text: &str) -> Result<Report, Vec<Diagnostic>> {
         Ok(report)
     } else {
         Err(errors)
+    }
+}
+
+/// The open code fence after `line`: a test's code may hold lines that look like headings.
+fn next_fence<'a>(open: Option<&'a str>, line: &'a str) -> Option<&'a str> {
+    let trimmed = line.trim();
+    let run = trimmed
+        .get(..trimmed.len() - trimmed.trim_start_matches('`').len())
+        .unwrap_or_default();
+    match open {
+        None if run.len() >= 3 => Some(run),
+        Some(open) if run.len() >= open.len() && run == trimmed => None,
+        open => open,
     }
 }
 

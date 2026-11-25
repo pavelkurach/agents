@@ -255,14 +255,26 @@ fn sync_lists_each_skipped_specialist_with_its_reason() {
 
 // --- proofs --------------------------------------------------------------------
 
-/// The total finding proven by a test on the merged proofs branch; returns the branch.
-fn with_proven_finding() -> (Fixture, String) {
+/// The total finding proven by `test` in `content`, committed at `path` on the merged proofs
+/// branch.
+fn with_proof_in(path: &str, content: &str, test: &str) -> Fixture {
     let fx = with_verified();
-    let branch = fx.proofs_branch();
-    let commit = fx.commit_on_branch(&branch, "tests/calc_test.rs", PROOF_TEST);
+    let commit = fx.commit_on_branch(&fx.proofs_branch(), path, content);
     let mut verified = valid_verified();
     verified["findings"][0]["proof"] = proof(&commit);
+    verified["findings"][0]["proof"]["test"] = serde_json::json!(test);
     fx.write_json("verified.json", &verified);
+    fx
+}
+
+/// The total finding proven by `PROOF_TEST` on the merged proofs branch; returns the branch.
+fn with_proven_finding() -> (Fixture, String) {
+    let fx = with_proof_in(
+        "tests/calc_test.rs",
+        PROOF_TEST,
+        "tests/calc_test.rs::total_counts_the_last_item",
+    );
+    let branch = fx.proofs_branch();
     (fx, branch)
 }
 
@@ -278,7 +290,7 @@ fn sync_renders_a_proven_findings_reproduction_and_the_proofs_branch() {
         RENDERED
             .replace(
                 "short by its last line.\n\nFix:",
-                "short by its last line.\n\nReproduced by `tests/calc_test.rs::total_counts_the_last_item` — `cargo test --test calc_test`:\n\n    assertion `left == right` failed\n      left: 1\n     right: 3\n\nAt base:\n\n    test total_counts_the_last_item ... ok\n\nFix:",
+                "short by its last line.\n\nReproduced by `tests/calc_test.rs::total_counts_the_last_item` — `cargo test --test calc_test`:\n\n```rs\n#[test]\nfn total_counts_the_last_item() {\n    assert_eq!(calc::total(&[1, 2]), 3);\n}\n```\n\nAt head:\n\n    assertion `left == right` failed\n      left: 1\n     right: 3\n\nAt base:\n\n    test total_counts_the_last_item ... ok\n\nFix:",
             )
             .replace(
                 "## My findings\n",
@@ -305,7 +317,7 @@ fn sync_omits_the_base_result_of_a_proof_that_cannot_run_at_base() {
 }
 
 #[test]
-fn comments_carry_a_proven_findings_reproduction() {
+fn comments_carry_a_proven_findings_test_code_and_reproduction() {
     let (fx, _) = with_proven_finding();
     sync(&fx).success();
 
@@ -318,6 +330,15 @@ issue (blocking): total drops the last item
 total(&[1, 2]) returns 1, so every invoice is short by its last line.
 
 Reproduced by `tests/calc_test.rs::total_counts_the_last_item` — `cargo test --test calc_test`:
+
+```rs
+#[test]
+fn total_counts_the_last_item() {
+    assert_eq!(calc::total(&[1, 2]), 3);
+}
+```
+
+At head:
 
     assertion `left == right` failed
       left: 1
@@ -343,6 +364,97 @@ fn comments_never_print_the_proofs_branch() {
     assert
         .success()
         .stdout(predicates::str::contains(branch).not());
+}
+
+const TWO_TESTS: &str = "use calc::total;
+
+#[test]
+fn total_of_nothing_is_zero() {
+    assert_eq!(total(&[]), 0);
+}
+
+#[test]
+#[should_panic]
+fn total_counts_the_last_item() {
+    let items = [1, 2];
+    assert_eq!(total(&items), 3);
+}
+
+#[test]
+fn total_of_one_is_that_item() {
+    assert_eq!(total(&[7]), 7);
+}
+";
+
+#[test]
+fn sync_cuts_the_proof_test_from_its_file_by_name() {
+    let fx = with_proof_in(
+        "tests/calc_test.rs",
+        TWO_TESTS,
+        "tests/calc_test.rs::tests::total_counts_the_last_item",
+    );
+
+    sync(&fx).success();
+
+    assert!(read(fx.dir.path(), "report.md").contains(
+        "```rs\n#[test]\n#[should_panic]\nfn total_counts_the_last_item() {\n    let items = [1, 2];\n    assert_eq!(total(&items), 3);\n}\n```\n\nAt head:"
+    ));
+}
+
+const PY_TESTS: &str = "import calc
+
+
+class TestTotal:
+    @pytest.mark.slow
+    def test_counts_the_last_item(self):
+        items = [1, 2]
+
+        assert calc.total(items) == 3
+
+    def test_of_nothing_is_zero(self):
+        assert calc.total([]) == 0
+";
+
+#[test]
+fn sync_cuts_an_indented_proof_test_through_its_body() {
+    let fx = with_proof_in(
+        "tests/test_calc.py",
+        PY_TESTS,
+        "tests/test_calc.py::TestTotal::test_counts_the_last_item[1-2]",
+    );
+
+    sync(&fx).success();
+
+    assert!(read(fx.dir.path(), "report.md").contains(
+        "```py\n    @pytest.mark.slow\n    def test_counts_the_last_item(self):\n        items = [1, 2]\n\n        assert calc.total(items) == 3\n```\n"
+    ));
+}
+
+#[test]
+fn sync_shows_the_test_files_diff_when_the_test_name_is_not_in_it() {
+    let fx = with_proof_in("tests/calc_test.rs", PROOF_TEST, "tests/calc_test.rs::42");
+
+    sync(&fx).success();
+
+    assert!(read(fx.dir.path(), "report.md").contains(
+        "```diff\ndiff --git a/tests/calc_test.rs b/tests/calc_test.rs\nnew file mode 100644\n"
+    ));
+}
+
+#[test]
+fn comments_keep_a_test_line_that_looks_like_a_heading() {
+    let fx = with_proof_in(
+        "tests/calc_test.rs",
+        "#[test]\nfn total_counts_the_last_item() {\n    let doc = \"\n## not a heading\n\";\n    assert_eq!(calc::total(&[doc.len() as u32]), 18);\n}\n",
+        "tests/calc_test.rs::total_counts_the_last_item",
+    );
+    sync(&fx).success();
+
+    let assert = comments(&fx);
+
+    assert.success().stdout(predicates::str::contains(
+        "    let doc = \"\n## not a heading\n\";\n",
+    ));
 }
 
 // --- suspicions ----------------------------------------------------------------

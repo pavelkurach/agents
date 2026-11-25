@@ -6,7 +6,7 @@ use std::process::Command;
 
 use crate::diff::{Change, HeadFiles};
 use crate::model::{RepoPath, Sha};
-use crate::proof::{Found, ProofObjects, Query};
+use crate::proof::{self, Found, Proof, ProofObjects, Query, TestSource};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShellError {
@@ -122,6 +122,25 @@ pub fn proof_objects(repo: &Path, queries: BTreeSet<Query>) -> Result<ProofObjec
         found.insert(query, state);
     }
     Ok(ProofObjects::new(found))
+}
+
+/// The proof's test as its commit holds it, read with `git show`.
+pub fn test_source(repo: &Path, proof: &Proof) -> Result<Option<TestSource>, ShellError> {
+    let (commit, path) = (proof.commit.as_str(), proof.test.path.as_str());
+    let file = git(repo, &["show", &format!("{commit}:{path}")])?.ok();
+    let diff = git_ok(
+        repo,
+        &[
+            "show",
+            "--format=",
+            "--no-color",
+            "--no-ext-diff",
+            commit,
+            "--",
+            path,
+        ],
+    )?;
+    Ok(proof::source(&proof.test, file.as_deref(), &diff))
 }
 
 pub fn read(path: &Path) -> Result<String, ShellError> {

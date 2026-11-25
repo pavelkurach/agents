@@ -1,7 +1,7 @@
 //! Command shell: reads the review directory, the rules, the specialists and git,
 //! calls the pure core, prints. Exit 0 = clean (warnings allowed), 1 = errors.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -291,12 +291,21 @@ fn run_sync(dir: &Path) -> Result<Outcome, ShellError> {
             .as_ref()
             .map(|doc| investigations::unresolved(&review_dir.reviews, doc))
             .unwrap_or_default();
+        let mut sources = BTreeMap::new();
+        for finding in &verified.findings {
+            if let Some(proof) = &finding.proof
+                && let Some(source) = git::test_source(review_dir.state.repo.as_path(), proof)?
+            {
+                sources.insert(finding.id, source);
+            }
+        }
         git::write(
             &path,
             &report::render(
                 &review_dir.state.target,
                 &review_dir.state.head,
                 verified,
+                &sources,
                 &unresolved,
                 &review_dir.state.skipped(),
             ),

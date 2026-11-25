@@ -32,14 +32,36 @@ else's PR/MR. Ask if unclear.
 
 Review directory: `~/.revy/reviews/<repo dir name>/<target, with / replaced by ->/`. Every scratch file, copy and build
 goes under its `scratch/`; probes and experiments run in git worktrees there, on local `revy/<h>/proofs-*` branches
-(`reviewer.md`, "Proofs branch"), so the reviewed branch changes only in the fix loop. When the review is done,
-delete `scratch/` and run `git -C <repo> worktree prune`; the branches stay. A review there of the same
+(`reviewer.md`, "Proofs branch"), so the reviewed branch changes only in the fix loop. The verifier merges the kept
+proofs onto `revy/<h>/proofs` and deletes the rest. When the review is done, delete `scratch/` and run
+`git -C <repo> worktree prune`; `revy/<h>/proofs` stays when a finding is proven. A review there of the same
 base and head: resume from it (the owner may have curated report.md). Of a different base or head: ask before
 overwriting. Done when `state.json` holds
 `{"repo": "<abs path>", "target": "<as given>", "base": "<sha>", "head": "<sha>", "mode": "self" | "team", "round": 1, "skill": "<this skill's directory>"}`;
 every later step uses this base and head.
 
-## 0. Problem gate
+## 0. Capabilities
+The owner runs every review interactively and wants it run with full capabilities. Inventory what this session can
+use, by purpose rather than product:
+- code intelligence — definitions, callers, references, call hierarchy — for each language the change touches
+- runtime execution — the repo builds and its tests run here (toolchain, dependencies, services); the proof tests
+  need it
+- structured search (syntax-aware, such as ast-grep) and text search (such as ripgrep)
+
+Reading source and grep are the floor. Judge from the repo what fits it: a language server for each language it
+uses, its own build and test commands.
+
+For each gap that would materially help navigation or bug detection, name what it adds and the exact command that
+installs or enables it. With any such suggestion, stop and wait for the owner's answer: install (run the commands
+they approve, then inventory again) or proceed without. With none, proceed straight on, with at most a one-line
+inventory note to the owner.
+
+Write the final inventory to `capabilities.md` in the review directory, one line per purpose:
+`- <purpose>: <tool and how to call it>` or `- <purpose>: none — <fallback>`. Its path is an input of every
+reviewer, specialist, investigator and verifier. Done when `capabilities.md` holds the final inventory and every
+suggestion has the owner's answer.
+
+## 0b. Problem gate
 Collect the sources: ticket, PR/MR description, linked issue, commit messages in the range. With none of them:
 self mode asks the owner for a one-line goal; team mode lets the gate infer it from the commits.
 Dispatch one subagent with `problem.md`; inputs: repo, base, head, the sources (or the owner's goal), the review
@@ -74,20 +96,20 @@ re-review. Team mode: the report says so, and you ask whether to run the deep re
   - one specialist subagent per dispatched specialist with `reviewer.md`, at its n, given its file in place of a
     lens and, as its rules index, the lines indented below its line, indent removed (none when there are none).
 
-  Inputs for each: repo, base, head, n, lens, the problem statement and criteria from `problem.json`, the rules
-  index (the output of `revy-review rules` up to its first `Specialist:` line), the output path `reviews/<n>.json` in
+  Inputs for each: repo, base, head, n, lens, the capabilities inventory, the problem statement and criteria from
+  `problem.json`, the rules index (the output of `revy-review rules` up to its first `Specialist:` line), the output path `reviews/<n>.json` in
   the review directory.
 - Done when every dispatched subagent has returned and `revy-review check` is clean.
 
 ## 1b. Investigate
 When any review file holds a `suspect` entry, dispatch one investigator subagent with `investigator.md`, on the
 strongest model your harness offers at its highest reasoning effort; inputs: repo, base, head, the review
-directory, n = the next number after the last dispatched specialist (5 with none). Done when `revy-review check` is clean.
+directory, the capabilities inventory, n = the next number after the last dispatched specialist (5 with none). Done when `revy-review check` is clean.
 No suspicions: skip this step.
 
 ## 2. Verify
 Dispatch one verifier subagent with `verifier.md`, always separate from the reviewers; inputs: repo, base, head,
-the review directory. Done when `revy-review check` is clean; once `verified.json` exists it also requires every
+the review directory, the capabilities inventory. Done when `revy-review check` is clean; once `verified.json` exists it also requires every
 lens reviewer's and dispatched specialist's `reviews/<n>.json` and, when there are suspicions, `investigations.json`.
 
 ## 3. Report
@@ -111,7 +133,7 @@ Deliver the report. With `fix`, run rounds, at most 3:
    stay out; the owner's uncommitted work stays uncommitted. Pushing is the
    owner's.
 5. Re-review the fix range `<commit before the fixes>..<round commit>` as its own target (steps 1–3, reusing this
-   review's `problem.json`, `round` = this round + 1).
+   review's `capabilities.md` and `problem.json`, `round` = this round + 1).
 6. Stop when a round's verified findings hold nothing new (only findings excluded or answered before).
 
 Done when the owner knows, per round, what it fixed, answered and left open, and its commit.

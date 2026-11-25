@@ -45,7 +45,14 @@ Design notes behind the rules base: `notes/`.
 The agent resolves the target and records `base`/`head` in the review state; every later step uses them.
 
 ## Steps (SKILL.md)
-0. Problem gate — one agent (`problem.md`). Sources: ticket, PR/MR description, linked issue, commit messages; self mode
+0. Capabilities — the coordinator inventories, by purpose not product, code intelligence for each language the change
+   touches, runtime execution (build and tests run here), structured and text search; reading source and grep are the
+   floor. For each gap that would materially help, it names what the tool adds and its install/enable command, then
+   waits for the owner (install, then re-inventory; or proceed without); with no such gap it proceeds without asking.
+   The final inventory, `capabilities.md` (`- <purpose>: <tool>` or `- <purpose>: none — <fallback>`; the helper
+   never reads it), is an input of every reviewer, specialist, investigator and verifier, which use the strongest
+   listed tool for each lookup.
+0b. Problem gate — one agent (`problem.md`). Sources: ticket, PR/MR description, linked issue, commit messages; self mode
    with none of them → ask the owner for a one-line goal; team mode → infer from commits and mark it inferred.
    Writes `problem.json`: statement, acceptance criteria (each quoted from its source, or marked implied), out of scope,
    and per criterion `met | partly | not met | unverifiable` with `path:line` evidence; unrelated changes = scope creep.
@@ -72,7 +79,8 @@ The agent resolves the target and records `base`/`head` in the review state; eve
 - Tests and experiments never touch the reviewed branch. Each reviewer n and the investigator work in their own git
   worktree `<review dir>/scratch/proofs-<n>` on local branch `revy/<h>/proofs-<n>` from head (`<h>` = first 7
   characters of head) and commit each probe test there. The verifier cherry-picks one proving commit per kept
-  finding onto `revy/<h>/proofs` from head, reruns each, and cites the new shas. Branches live in the repo's refs, so
+  finding onto `revy/<h>/proofs` from head, reruns each, and cites the new shas; then it deletes every
+  `revy/<h>/proofs-<n>` branch and its worktree, and `revy/<h>/proofs` too when no kept finding is proven. Branches live in the repo's refs, so
   they survive the deletion of `scratch/` (followed by `git worktree prune`); none is ever pushed. Team mode never
   touches the PR branch; self mode's `fix` loop moves the proof tests onto the branch as regression tests.
 
@@ -99,7 +107,7 @@ The agent resolves the target and records `base`/`head` in the review state; eve
   severity or site, a posted block without its fix) and a warning for a line outside the diff (it would post as a
   general comment).
 - `revy-review comments` prints each post-ready comment: `path:line`, conventional-comments header
-  (`issue (blocking): …`), why it breaks, the reproducing test when proven, fix. No process artifacts (ids, rule
+  (`issue (blocking): …`), why it breaks, the reproducing test's code and run line when proven, fix. No process artifacts (ids, rule
   ids, review-directory paths, tool mentions). Optional
   footer is config, off by default. Tone follows the owner's `voice.md`.
 - The agent posts them as a **draft/pending review** with whatever forge tool exists, after confirming the scope;
@@ -151,7 +159,8 @@ All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are
 - `verified.json`: `{"findings": [{"id": "F<k>", …same fields…, "merged_from": ["<n>.<k>", …]}], "dropped":
   [{"from": "<n>.<k>", "refuted_by": site, "why"}]}` (`proof` optional, as in reviews). `check`: every reviewer finding appears
   exactly once in `merged_from` or `dropped`; `refuted_by` exists at head; a kept finding's `proof.commit` is also
-  reachable from `refs/heads/revy/<h>/proofs`, the branch report.md names. With `verified.json` present, `check` also
+  reachable from `refs/heads/revy/<h>/proofs`, the branch report.md names. Once `verified.json` exists, only its
+  proofs are checked against git: the per-reviewer branches are deleted, so their commits may be pruned. With `verified.json` present, `check` also
   requires `reviews/1.json..N.json` (N = 4 lens reviewers + the specialists `state.json` records as dispatched), unless `problem.json` has
   `blocks: true` and none of `reviews/1..N` exists (the gate stopped the review before reviewers ran), and, when any
   review holds a suspicion, `investigations.json`; confirmed findings are ordinary review findings and need the same
@@ -159,8 +168,12 @@ All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are
 - `report.md` (rendered by `sync` from `verified.json`, edited by the owner): one block per kept finding —
   `### F<k>. <title>` then `- post: yes | no`, `- severity: …`, `- where: site, site`, a blank line, the body
   (why it breaks, then `Fix: …`) up to the next `##`/`###` heading. A proven finding's body holds, between why and
-  fix, ``Reproduced by `<test>` — `<cmd>`:`` and its failing excerpt indented as code, then `At base:` and the base
-  output unless `base` is `n/a`; after the findings, `## Proofs` names the branch and how to run or drop it. `## My findings` takes `- site [severity] — text`.
+  fix, ``Reproduced by `<test>` — `<cmd>`:``, the test's code in a fenced block (info string: the test file's
+  extension), `At head:` and its failing excerpt indented as code, then `At base:` and the base output unless `base`
+  is `n/a`. `sync` reads the code from the proof commit (`git show <commit>:<path>`): the test named by the last
+  `::` segment of `test` (parameters and subtests cut), with the attributes or decorators directly above it,
+  through its closing brace or its indented body; when no such test is found (a line number, an unmatched name),
+  the test file's diff in that commit, fenced as `diff`. Read-back skips headings inside a code fence; after the findings, `## Proofs` names the branch and how to run or drop it. `## My findings` takes `- site [severity] — text`.
   Unresolved suspicions render after the findings under `## Suspicions (unconfirmed)` as `### <claim>` with
   `- where:`, `- evidence:`, `- open question:` and `- check:` lines; skipped specialists then render under
   `## Specialists skipped` as `- <name>: <reason>`, so a wrong skip is visible. Reading back, only `post: yes` finding blocks and
@@ -191,7 +204,7 @@ Resolved details (skill and helper agree on these):
 - Self mode = the owner's own change (no target, own commit/range, or `fix`); team mode = someone else's PR/MR.
 
 ## State
-`~/.revy/reviews/<repo>/<target>/`: `state.json` (base, head, mode, round), `problem.json`, `reviews/<n>.json`,
+`~/.revy/reviews/<repo>/<target>/`: `state.json` (base, head, mode, round), `capabilities.md`, `problem.json`, `reviews/<n>.json`,
 `investigations.json`, `verified.json`, `report.md`.
 
 ## Rust helper (`revy-review …`)

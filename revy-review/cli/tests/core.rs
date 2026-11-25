@@ -138,6 +138,7 @@ fn rendered_report_parses_back_to_the_verified_findings() {
         &"feature".parse().unwrap(),
         &"abc1234".parse().unwrap(),
         &verified,
+        &BTreeMap::new(),
         &[],
         &[],
     );

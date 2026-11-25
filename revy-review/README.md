@@ -12,6 +12,8 @@ self-review.
 - `docs/spec.md` — the spec: file formats and what `revy-review check` enforces.
 
 ## Pipeline
+0. Capabilities → `capabilities.md`: the coordinator inventories code intelligence, runtime execution and search,
+   and waits for the owner only when it has an install or enable command to suggest.
 1. Problem gate (`problem.md`) → `problem.json`; a change that misses its problem stops here.
 2. Reviewers (`reviewer.md`, one lens pair each; each changed unit compared with what base guaranteed and probed by
    running it) and specialists (`reviewer.md` with a focus) → `reviews/<n>.json`.
@@ -32,10 +34,10 @@ From this folder:
 - `/revy-review fix` — self-review and fix everything (one commit per round, never pushed).
 
 A finding the reviewers could reproduce comes with a new test that fails at head; report.md and the comments show
-the test, its command and its failure. Those tests live on a local branch `revy/<first 7 of head>/proofs`, named
-under report.md's `## Proofs` and never pushed or merged into the reviewed branch: `git checkout` it (or
-`git worktree add`) to run them, `git branch -D` it to drop it (the reviewers' own `…/proofs-<n>` branches go the
-same way). With `fix`, each proven finding's test moves onto your branch first, fails, then passes with the fix in
+the test's code, its command and its failure. Those tests live on a local branch `revy/<first 7 of head>/proofs`,
+named under report.md's `## Proofs` and never pushed or merged into the reviewed branch: `git checkout` it (or
+`git worktree add`) to run them, `git branch -D` it to drop it. The reviewers' own `…/proofs-<n>` branches are
+deleted once the verifier has merged the kept proofs; with no proven finding, no proofs branch remains. With `fix`, each proven finding's test moves onto your branch first, fails, then passes with the fix in
 the same commit; in team mode the PR branch is never touched.
 
 The CLI, run from a review directory (or given it as `[dir]`; each command reads `state.json` there):

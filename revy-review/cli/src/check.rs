@@ -37,9 +37,16 @@ impl ReviewDir {
         problem.chain(reviews).chain(verified).cloned().collect()
     }
 
-    /// Every finding's proof; a kept finding's commit must be on the merged proofs branch.
+    /// Every proof git must hold; a kept finding's commit must be on the merged proofs branch.
+    /// Once `verified.json` exists only its proofs count: the verifier deletes the
+    /// per-reviewer proofs branches, so their commits may be pruned.
     pub fn proofs(&self) -> Vec<Cited<'_>> {
-        let reviews = self.reviews.iter().flat_map(|(file, review)| {
+        let unmerged = if self.verified.is_some() {
+            &[][..]
+        } else {
+            &self.reviews[..]
+        };
+        let reviews = unmerged.iter().flat_map(|(file, review)| {
             review
                 .findings
                 .iter()

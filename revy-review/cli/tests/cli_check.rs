@@ -852,6 +852,18 @@ fn kept_finding_whose_proof_is_off_the_merged_proofs_branch_is_rejected() {
     ));
 }
 
+#[test]
+fn reviewer_proof_whose_branch_was_deleted_after_verification_passes() {
+    let fx = with_verified(&valid_verified());
+    let mut review = review_with_two_findings();
+    review["findings"][0]["proof"] = proof("deadbeef");
+    fx.write_json("reviews/1.json", &review);
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
 // --- suspicions ----------------------------------------------------------------
 
 fn suspicion(id: &str) -> Value {
