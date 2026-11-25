@@ -34,7 +34,7 @@ From this folder:
 The CLI, run from a review directory (or given it as `[dir]`; each command reads `state.json` there):
 
 ```
-revy-review rules     # validate the rules and specialists, print the index for the change's languages
+revy-review rules     # validate the rules and specialists, print the rules index
 revy-review check     # validate every file in the review directory and the accounting across them
 revy-review sync      # render report.md from a clean review, or read back the owner's edits
 revy-review comments  # print the post-ready comments from report.md
@@ -55,9 +55,9 @@ skill's; without it, only the built-ins run.
     └── <name>.md             # one specialist per file; the file name is its name
 ```
 
-**A rule**, `~/.revy-review/rules/payments/amount-as-float.md` (full format: `skill/rules/README.md`). Only `langs:`
-and `When:` are required; `langs` is `any` or a list of `go`, `python`, `rust`, `typescript`, and the rule is
-indexed only when the change touches one of them. `When: always` applies it to every changed file.
+**A rule**, `~/.revy-review/rules/payments/amount-as-float.md` (full format: `skill/rules/README.md`). Only `When:` is
+required; `langs:` is an optional free-text hint (`python`, `java, kotlin`) that reviewers read to skip a rule that
+does not apply to the change. `When: always` applies it to every changed file.
 
 ```markdown
 # amount-as-float
@@ -69,7 +69,7 @@ Not when: display-only formatting of an amount that is never stored or summed.
 Report as: `<amount>` is a float, so `<operation>` rounds cents; fix: integer minor units or Decimal end to end.
 ```
 
-The four core reviewers receive every rule, of every topic, whose `langs` match; findings cite a rule by its id.
+The four core reviewers receive every rule, of every topic; findings cite a rule by its id.
 
 **A specialist** runs after the four core reviewers, as reviewer 5, 6, … (built-ins first, then yours, file-name
 order, counting only the ones dispatched). Its file starts with optional header lines in any order — `rules:
@@ -104,7 +104,7 @@ both branches are tested, and that a removed flag has no remaining reads in code
 **Validate** with `revy-review rules` (from a review directory): it prints the rules index, then
 `Specialist: <name> (dispatch: <mode>) — <file>` per specialist with its rules below it. It exits 1 and prints, per broken file:
 - `<file>: rule id <id> is also <other file>` — rule ids are unique across both rules folders and all topics.
-- `` <file>: rule <id> has no `langs: …` line `` (or `When: …`).
+- `` <file>: rule <id> has no `When: …` line ``.
 - `<file>: specialist <name> is also <other file>` — names are unique across `skill/reviewers/` and yours.
 - `` <file>: specialist <name> names rule folder `<topic>`, which no rules directory has `` — a typo, or a topic
   with no rules.

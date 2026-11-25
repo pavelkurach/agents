@@ -86,8 +86,8 @@ build too slow), record why as `probe.why_not_run`; the riskiest cell is then un
 `suspect` with that cell as the claim. The repository stays untouched; work offline.
 
 ## Rules floor
-The rules index lists the review rules for the change's languages, one line each: id, topic, langs, and when it
-applies (a specialist without a rules index skips this section). Read it whole. For every rule whose condition the
+The rules index lists every review rule, one line each: id, topic, optional langs hint, and when it
+applies (a specialist without a rules index skips this section). Read it whole; skip a rule whose langs hint names only languages the change does not touch. For every rule whose condition the
 change could meet (`When: always`: every changed file), open its file (the `Rule files:` path heading its section
 of the index) and answer its Ask with evidence at every matching site. The rules are the floor of your review, not
 its ceiling.

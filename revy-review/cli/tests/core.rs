@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use revy_review::diff::{Change, HeadFiles};
 use revy_review::model::{RepoPath, Site};
 use revy_review::report;
-use revy_review::rules::{self, Langs};
+use revy_review::rules;
 use revy_review::verified::Verified;
 
 fn site(raw: &str) -> Site {
@@ -121,34 +121,8 @@ fn rule_reads_langs_and_when_and_leaves_the_rest_to_the_reviewer() {
     let rule = rules::parse("python", "x", text).unwrap();
 
     assert_eq!(
-        (rule.langs, rule.when.as_str()),
-        (
-            Langs::Only(["python".to_owned(), "rust".to_owned()].into()),
-            "w"
-        )
-    );
-}
-
-#[test]
-fn file_language_comes_from_its_extension() {
-    let langs: Vec<Option<&str>> = [
-        "a.rs", "b.pyi", "c.go", "d.tsx", "e.mjs", "f.md", "Makefile",
-    ]
-    .iter()
-    .map(|path| rules::lang_of(&path.parse().unwrap()))
-    .collect();
-
-    assert_eq!(
-        langs,
-        [
-            Some("rust"),
-            Some("python"),
-            Some("go"),
-            Some("typescript"),
-            Some("typescript"),
-            None,
-            None
-        ]
+        (rule.langs.as_deref(), rule.when.as_str()),
+        (Some("Python, rust"), "w")
     );
 }
 

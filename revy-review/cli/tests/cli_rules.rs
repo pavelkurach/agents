@@ -42,13 +42,14 @@ fn shipped_rules_validate_and_are_indexed() {
 }
 
 #[test]
-fn index_lists_the_rules_for_the_changes_languages() {
+fn index_lists_every_rule_even_when_its_langs_are_absent_from_the_change() {
     let fx = fixture();
 
     let assert = rules(&fx);
 
     assert.success().stdout(format!(
-        "{}edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
+        "{}defer-in-loop (go) [go] — The diff adds a `defer` inside a loop.\n\
+         edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
          arc-mutex-single-owner (rust) [rust] — The diff wraps state in `Arc<Mutex<_>>`.\n",
         index_header(&fx)
     ));
@@ -66,7 +67,7 @@ fn any_folder_in_the_rules_directory_is_a_topic() {
     let assert = rules(&fx);
 
     assert.success().stdout(predicates::str::ends_with(
-        "duplicated-logic (team) [python, rust] — always\n",
+        "duplicated-logic (team) [python, Rust] — always\n",
     ));
 }
 
@@ -100,7 +101,7 @@ fn rule_without_when_is_an_error_naming_its_file() {
 }
 
 #[test]
-fn rule_without_langs_is_an_error_naming_its_file() {
+fn rule_without_langs_line_is_indexed_without_a_hint() {
     let fx = fixture();
     write(
         &fx.rules(),
@@ -110,26 +111,24 @@ fn rule_without_langs_is_an_error_naming_its_file() {
 
     let assert = rules(&fx);
 
-    assert.failure().code(1).stderr(format!(
-        "{}/logic/no-langs.md: rule no-langs has no `langs: …` line\n",
-        fx.rules().display()
-    ));
+    assert
+        .success()
+        .stdout(predicates::str::contains("\nno-langs (logic) — always\n"));
 }
 
 #[test]
-fn langs_naming_no_language_is_an_error() {
+fn unusual_langs_value_is_accepted_verbatim_as_a_hint() {
     let fx = fixture();
     write(
         &fx.rules(),
-        "logic/commas.md",
-        "# commas\nlangs: , ,\nWhen: always\n",
+        "logic/odd-langs.md",
+        "# odd-langs\nlangs: Java, Kotlin (JVM only)\nWhen: always\n",
     );
 
     let assert = rules(&fx);
 
-    assert.failure().code(1).stderr(format!(
-        "{}/logic/commas.md: `langs: , ,` names no language; write `any` or a list\n",
-        fx.rules().display()
+    assert.success().stdout(predicates::str::contains(
+        "\nodd-langs (logic) [Java, Kotlin (JVM only)] — always\n",
     ));
 }
 
@@ -158,7 +157,8 @@ fn broken_rule_is_reported_and_the_valid_rules_are_still_indexed() {
     let assert = rules(&fx);
 
     assert.failure().code(1).stdout(format!(
-        "{}edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
+        "{}defer-in-loop (go) [go] — The diff adds a `defer` inside a loop.\n\
+         edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
          arc-mutex-single-owner (rust) [rust] — The diff wraps state in `Arc<Mutex<_>>`.\n",
         index_header(&fx)
     ));
@@ -189,7 +189,8 @@ fn plugin_rules_are_indexed_after_the_skills_under_their_own_header() {
     let assert = rules(&fx);
 
     assert.success().stdout(format!(
-        "{}edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
+        "{}defer-in-loop (go) [go] — The diff adds a `defer` inside a loop.\n\
+         edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
          arc-mutex-single-owner (rust) [rust] — The diff wraps state in `Arc<Mutex<_>>`.\n\
          Rule files: {}/rules/<topic>/<id>.md\n\
          no-print-debugging (team) [python] — The diff adds a `print(` call.\n",
@@ -224,7 +225,8 @@ fn empty_plugin_folder_leaves_the_built_in_index() {
     let assert = rules(&fx);
 
     assert.success().stdout(format!(
-        "{}edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
+        "{}defer-in-loop (go) [go] — The diff adds a `defer` inside a loop.\n\
+         edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
          arc-mutex-single-owner (rust) [rust] — The diff wraps state in `Arc<Mutex<_>>`.\n",
         index_header(&fx)
     ));
@@ -313,7 +315,8 @@ fn specialist_without_rules_line_is_listed_with_no_rules() {
     let assert = rules(&fx);
 
     assert.success().stdout(format!(
-        "{}edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
+        "{}defer-in-loop (go) [go] — The diff adds a `defer` inside a loop.\n\
+         edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
          arc-mutex-single-owner (rust) [rust] — The diff wraps state in `Arc<Mutex<_>>`.\n\
          Specialist: security (dispatch: always) — {}/reviewers/security.md\n",
         index_header(&fx),

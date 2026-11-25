@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Rules index and validation for revy-rules-ingest.
-#   rules.sh index            every rule (all languages) and specialist, from the skill's and ~/.revy-review/ folders
+#   rules.sh index            every rule and specialist, from the skill's and ~/.revy-review/ folders
 #   rules.sh lint <file>...   format checks the CLI leaves to the author, on draft or written rule files
 #   rules.sh check [file...]  `revy-review rules` over both folders (parse, duplicate ids, specialists), then lint
 # REVY_SKILL overrides the revy-review skill directory (default: ../skill beside this skill).
@@ -23,7 +23,7 @@ index() {
       awk -v id="$(basename "$f" .md)" -v topic="$(basename "$(dirname "$f")")" '
         /^langs:/ { sub(/^langs:[ \t]*/, ""); langs = $0 }
         /^When:/  { sub(/^When:[ \t]*/, "");  when = $0 }
-        END { printf "%s (%s) [%s] — %s\n", id, topic, langs, when }' "$f"
+        END { printf "%s (%s)%s — %s\n", id, topic, (langs == "" ? "" : " [" langs "]"), when }' "$f"
     done
   done
   for dir in "$skill" "$own"; do
@@ -44,7 +44,6 @@ lint() {
     id=$(basename "$f" .md)
     [[ $(head -n1 "$f") == "# $id" ]] || fail "first line must be '# $id' (the file name)"
     [[ $id =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || fail "id '$id' must be kebab-case"
-    grep -q '^langs: ' "$f" || fail "no 'langs:' line"
     when=$(grep -m1 '^When: ' "$f" | sed 's/^When: //' || true)
     [[ -n "$when" ]] || fail "no 'When:' line"
     (( ${#when} <= max_when )) || fail "When is ${#when} chars; keep it to $max_when"

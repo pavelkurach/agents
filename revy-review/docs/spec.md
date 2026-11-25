@@ -17,14 +17,14 @@ Design notes behind the rules base: `notes/`.
 ## Rules
 - Two rules folders, in load order: the skill's `rules/` (required) and the owner's `~/.revy-review/rules/`
   (optional). In each, every subfolder is a topic, one rule per file `<topic>/<id>.md`, the file name is the id
-  (unique across the topics of both folders). Format in `rules/README.md`: `langs` and `When` (read by the helper),
+  (unique across the topics of both folders). Format in `rules/README.md`: optional `langs` hint and `When` (read by the helper),
   `Ask` / `Report as` and optional `Not when` / `Example` (read by the reviewer). Re-authored; nothing copied from
   tave. No rule topic is known to the code.
 - Custom rules: the owner adds files to `~/.revy-review/rules/<topic>/`, a new folder for a new topic. No code
   change.
-- `revy-review rules` validates both folders (a `langs:` and a `When:` line in every file, unique ids; errors name the
+- `revy-review rules` validates both folders (a `When:` line in every file, unique ids; errors name the
   file, a duplicate id names both files) and prints one index the reviewers read: per folder a `Rule files:` header,
-  then one line per rule whose `langs` cover a language of the changed files (by extension; `any` always). Reviewers open only rule files whose `When` matches the diff; `When: always`
+  then one line per rule (its `langs` is a free-text hint reviewers read; no extension filtering). Reviewers open only rule files whose `When` matches the diff; `When: always`
   asks them to apply the rule to every changed file.
 - Language focus: Python and Rust first (packs, fixtures, evals); Go and TypeScript packs exist but are secondary.
 
@@ -175,7 +175,7 @@ Resolved details (skill and helper agree on these):
 ## Rust helper (`revy-review …`)
 The crate in `cli/`: one standalone `revy-review` binary; the skill in `skill/` calls it.
 Pure and file-based except reading git objects for quotes and the diff.
-- `rules [dir]`: validates the rules folders and specialists and prints the index for the change's languages,
+- `rules [dir]`: validates the rules folders and specialists and prints the full rules index,
   with each specialist's dispatch mode and index.
 - `check [dir]`: validates every file present in the review directory (Formats above) and the accounting across
   them — `problem.json`, each `reviews/<n>.json` (a file with lens `investigator` owes no ledger coverage, since it
@@ -191,4 +191,4 @@ Errors are precise and actionable; the skill tells the agent to fix and re-run u
 ## Open (decided by eval)
 - Final reviewer brief: `revy` candidate (ens2 + impact ledger + rules floor) vs tave on Opus 5.5 medium,
   on f01–f20 (shipped regressions) and h01–h08 (human-reviewed PRs).
-- Rule-index filtering beyond language (`applies_to`).
+- Rule-index filtering (`applies_to`).

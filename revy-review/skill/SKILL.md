@@ -52,7 +52,7 @@ re-review. Team mode: the report says so, and you ask whether to run the deep re
 
 ## 1. Reviewers
 - `revy-review rules` validates the rules and specialists (this skill's and the owner's `~/.revy-review/`) and
-  prints the rules index for the languages the change touches, then one `Specialist: <name> (dispatch: <mode>) —
+  prints the rules index, then one `Specialist: <name> (dispatch: <mode>) —
   <file>` line per specialist with that specialist's own index indented below it (none when its file names no
   `rules:`). Fix errors with the owner, or report them and continue without the broken rule or specialist.
 - Decide each specialist. `always`: dispatch it. `when relevant`: read its file against the diff; skip it only when

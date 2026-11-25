@@ -261,12 +261,9 @@ fn run_rules(dir: &Path) -> Result<Outcome, ShellError> {
         .map(|rule| rule.topic.as_str())
         .collect();
     errors.extend(specialists::unknown_rule_folders(&found, &topics));
-    let change = git::change(state.repo.as_path(), &state.base, &state.head)?;
-    let langs: BTreeSet<&str> = change.files().filter_map(rules::lang_of).collect();
-    let specialist_index =
-        specialists::index(&found, |folders| rules::index(&sets, &langs, Some(folders)));
+    let specialist_index = specialists::index(&found, |folders| rules::index(&sets, Some(folders)));
     Ok(Outcome {
-        stdout: rules::index(&sets, &langs, None) + &specialist_index,
+        stdout: rules::index(&sets, None) + &specialist_index,
         warnings: Vec::new(),
         errors,
     })

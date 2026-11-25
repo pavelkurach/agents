@@ -6,7 +6,7 @@ where the rule came from, stays out.
 
 ```markdown
 # <id>
-langs: any | go, typescript, python, rust
+langs: <hint, free text: python | java, kotlin>      (optional)
 
 When: <what is visible in the diff that makes this rule apply — one sentence; it becomes the index line>
 Ask: <the question to answer, and what to read or search to answer it; up to 3 sub-questions about the same site>
@@ -17,8 +17,9 @@ Example:            (optional; mostly language packs)
   good: <1–2 lines>
 ```
 
-- `revy-review rules` reads only `langs:` and `When:` (both required) and lists the rules whose `langs` cover a
-  language the change touches (`any` always). The rest of the file is for the reviewer who opens it.
+- `revy-review rules` reads only `When:` (required) and `langs:` (optional) and lists every rule. `langs` is a
+  free-text hint, never interpreted: reviewers skip a rule whose languages the change does not touch. Omit it for
+  a rule that applies to any language. The rest of the file is for the reviewer who opens it.
 - `When` names a change in the diff, not a principle; keep it to one short sentence. `Ask` is checkable with evidence.
 - `When: always` asks reviewers to apply the rule to every changed file.
 - Write `Ask` and `Report as`. `Not when` only for a rule with a known look-alike that reviewers would otherwise
