@@ -5,7 +5,8 @@ use std::fmt::Write as _;
 
 use crate::diff::Change;
 use crate::investigations::Unresolved;
-use crate::model::{Diagnostic, Severity, Site, Sites, Text, VerifiedId};
+use crate::model::{Diagnostic, Severity, Sha, Site, Sites, Text, VerifiedId};
+use crate::proof;
 use crate::verified::Verified;
 
 pub const FILE: &str = "report.md";
@@ -13,8 +14,11 @@ const OWN_SECTION: &str = "## My findings";
 
 /// `skipped`: `(name, reason)` of each specialist the coordinator did not dispatch, listed so
 /// the owner sees a wrong skip.
+///
+/// A proven finding's body carries its reproduction, so the comment posted from it does too.
 pub fn render(
     target: &Text,
+    head: &Sha,
     verified: &Verified,
     unresolved: &[Unresolved],
     skipped: &[(&str, &Text)],
@@ -24,13 +28,29 @@ pub fn render(
         let sites: Vec<String> = finding.sites.all().map(ToString::to_string).collect();
         let _ = write!(
             out,
-            "### {}. {}\n- post: yes\n- severity: {}\n- where: {}\n\n{}\n\nFix: {}\n\n",
+            "### {}. {}\n- post: yes\n- severity: {}\n- where: {}\n\n{}\n\n{}Fix: {}\n\n",
             finding.id,
             finding.title,
             finding.severity.as_str(),
             sites.join(", "),
             finding.breaks.as_str().trim(),
+            finding
+                .proof
+                .as_ref()
+                .map(|proof| proof::render(proof) + "\n\n")
+                .unwrap_or_default(),
             finding.fix.as_str().trim(),
+        );
+    }
+    if verified
+        .findings
+        .iter()
+        .any(|finding| finding.proof.is_some())
+    {
+        let branch = proof::merged_branch(head);
+        let _ = write!(
+            out,
+            "## Proofs\n\nThe reproducing tests are on local branch `{branch}`, never pushed: check it out to run them; `git branch -D {branch}` drops it.\n\n"
         );
     }
     if !unresolved.is_empty() {

@@ -260,7 +260,7 @@ impl fmt::Display for Text {
 }
 
 /// A commit object name: 4–64 hex digits.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Sha(String);
 
 impl Sha {

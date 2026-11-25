@@ -150,6 +150,24 @@ impl Fixture {
         }
     }
 
+    /// Commits `content` at `path` on a new `branch` from head, leaving the checkout on main;
+    /// returns the commit's sha.
+    pub fn commit_on_branch(&self, branch: &str, path: &str, content: &str) -> String {
+        let root = self.repo.path();
+        git(root, &["switch", "-q", "-c", branch, &self.head]);
+        write(root, path, content);
+        git(root, &["add", path]);
+        git(root, &["commit", "-q", "-m", "proof"]);
+        let sha = git(root, &["rev-parse", "HEAD"]);
+        git(root, &["switch", "-q", "main"]);
+        sha
+    }
+
+    /// The merged proofs branch name for the fixture's head.
+    pub fn proofs_branch(&self) -> String {
+        format!("revy/{}/proofs", &self.head[..7])
+    }
+
     /// `revy-review` run from the review directory.
     pub fn revy_review(&self) -> Command {
         let mut command = Command::cargo_bin("revy-review").expect("binary `revy-review` builds");
@@ -222,6 +240,17 @@ pub fn review_with_two_findings() -> Value {
              "fix": "Return None.", "rule": null}
         ));
     review
+}
+
+pub const PROOF_TEST: &str =
+    "#[test]\nfn total_counts_the_last_item() {\n    assert_eq!(calc::total(&[1, 2]), 3);\n}\n";
+
+/// A proof of `total drops the last item` by `tests/calc_test.rs` at `commit`.
+pub fn proof(commit: &str) -> Value {
+    json!({"test": "tests/calc_test.rs::total_counts_the_last_item", "commit": commit,
+           "cmd": "cargo test --test calc_test",
+           "head": "assertion `left == right` failed\n  left: 1\n right: 3",
+           "base": "test total_counts_the_last_item ... ok"})
 }
 
 pub fn valid_verified() -> Value {

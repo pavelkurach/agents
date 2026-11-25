@@ -9,8 +9,8 @@ mod support;
 
 use serde_json::{Value, json};
 use support::{
-    Fixture, empty_review, fixture, review_with_two_findings, valid_problem, valid_review,
-    valid_verified, write,
+    Fixture, PROOF_TEST, empty_review, fixture, proof, review_with_two_findings, valid_problem,
+    valid_review, valid_verified, write,
 };
 
 fn check(fx: &Fixture) -> assert_cmd::assert::Assert {
@@ -758,6 +758,97 @@ fn probe_on_a_contract_entry_is_rejected() {
 
     assert.failure().stderr(predicates::str::starts_with(
         "reviews/1.json: ledger[2]: probe is only valid on a unit entry",
+    ));
+}
+
+// --- proofs --------------------------------------------------------------------
+
+/// Reviewer 1's finding 1.1 carrying `proof`.
+fn with_review_proof(fx: &Fixture, proof: &Value) {
+    let mut review = valid_review();
+    review["findings"][0]["proof"] = proof.clone();
+    fx.write_json("reviews/1.json", &review);
+}
+
+#[test]
+fn finding_with_a_proof_committed_on_a_proofs_branch_passes() {
+    let fx = fixture();
+    let commit = fx.commit_on_branch("revy/x/proofs-1", "tests/calc_test.rs", PROOF_TEST);
+    with_review_proof(&fx, &proof(&commit));
+
+    let assert = check(&fx);
+
+    assert
+        .success()
+        .stdout("reviews/1.json: ok (1 findings, 2 ledger entries)\n");
+}
+
+#[test]
+fn proof_citing_a_commit_missing_from_the_repository_is_rejected() {
+    let fx = fixture();
+    with_review_proof(&fx, &proof("deadbeef"));
+
+    let assert = check(&fx);
+
+    assert.failure().code(1).stderr(
+        "reviews/1.json: findings[0].proof: commit deadbeef is not in the repository; commit the test on your proofs branch and cite that sha\n",
+    );
+}
+
+#[test]
+fn proof_whose_test_file_is_absent_at_its_commit_is_rejected() {
+    let fx = fixture();
+    let commit = fx.commit_on_branch("revy/x/proofs-1", "tests/other_test.rs", PROOF_TEST);
+    with_review_proof(&fx, &proof(&commit));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(format!(
+        "reviews/1.json: findings[0].proof: test file tests/calc_test.rs does not exist at commit {commit}\n"
+    ));
+}
+
+#[test]
+fn proof_with_a_blank_failing_output_is_rejected() {
+    let fx = fixture();
+    let mut blank = proof(&fx.head);
+    blank["head"] = json!("  ");
+    with_review_proof(&fx, &blank);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "reviews/1.json: findings[0].proof.head: text must not be blank at line 36 column 20\n",
+    );
+}
+
+#[test]
+fn proof_test_without_a_test_name_is_rejected() {
+    let fx = fixture();
+    let mut unnamed = proof(&fx.head);
+    unnamed["test"] = json!("tests/calc_test.rs");
+    with_review_proof(&fx, &unnamed);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "reviews/1.json: findings[0].proof.test: test `tests/calc_test.rs` is not `<repo-relative path>::<test name or line>` at line 33 column 36\n",
+    );
+}
+
+#[test]
+fn kept_finding_whose_proof_is_off_the_merged_proofs_branch_is_rejected() {
+    let fx = with_two_findings();
+    let commit = fx.commit_on_branch("revy/x/proofs-1", "tests/calc_test.rs", PROOF_TEST);
+    let mut verified = valid_verified();
+    verified["findings"][0]["proof"] = proof(&commit);
+    fx.write_json("verified.json", &verified);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(format!(
+        "verified.json: findings[0].proof: commit {commit} is not on branch {}; cherry-pick each kept finding's proving commit there and cite the new sha\n",
+        fx.proofs_branch()
     ));
 }
 

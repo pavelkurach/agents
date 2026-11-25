@@ -6,6 +6,7 @@ use std::process::Command;
 
 use crate::diff::{Change, HeadFiles};
 use crate::model::{RepoPath, Sha};
+use crate::proof::{Found, ProofObjects, Query};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShellError {
@@ -89,6 +90,38 @@ pub fn head_files(
         files.insert(path, text);
     }
     Ok(HeadFiles::new(files))
+}
+
+/// For each query: whether its commit exists, holds its test file and, when it names one,
+/// is on its branch.
+pub fn proof_objects(repo: &Path, queries: BTreeSet<Query>) -> Result<ProofObjects, ShellError> {
+    let mut found = BTreeMap::new();
+    for query in queries {
+        let commit = query.commit.as_str();
+        let succeeds = |args: &[&str]| git(repo, args).map(|result| result.is_ok());
+        let state = if !succeeds(&["cat-file", "-e", &format!("{commit}^{{commit}}")])? {
+            Found::NoCommit
+        } else if !succeeds(&[
+            "cat-file",
+            "-e",
+            &format!("{commit}:{}", query.path.as_str()),
+        ])? {
+            Found::NoFile
+        } else if let Some(branch) = &query.branch
+            && !succeeds(&[
+                "merge-base",
+                "--is-ancestor",
+                commit,
+                &format!("refs/heads/{branch}"),
+            ])?
+        {
+            Found::OffBranch
+        } else {
+            Found::Present
+        };
+        found.insert(query, state);
+    }
+    Ok(ProofObjects::new(found))
 }
 
 pub fn read(path: &Path) -> Result<String, ShellError> {

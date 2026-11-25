@@ -160,7 +160,13 @@ fn rendered_report_parses_back_to_the_verified_findings() {
             "dropped": []}"#,
     )
     .unwrap();
-    let rendered = report::render(&"feature".parse().unwrap(), &verified, &[], &[]);
+    let rendered = report::render(
+        &"feature".parse().unwrap(),
+        &"abc1234".parse().unwrap(),
+        &verified,
+        &[],
+        &[],
+    );
 
     let parsed = report::parse(&rendered).unwrap();
 
