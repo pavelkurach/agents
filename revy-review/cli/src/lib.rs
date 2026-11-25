@@ -11,6 +11,7 @@ pub mod git;
 pub mod investigations;
 pub mod model;
 pub mod problem;
+pub mod proof;
 pub mod report;
 pub mod review;
 pub mod rules;

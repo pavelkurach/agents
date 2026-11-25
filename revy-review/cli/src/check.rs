@@ -6,6 +6,7 @@ use crate::diff::{Change, HeadFiles};
 use crate::investigations::{self, Investigations};
 use crate::model::{Diagnostic, RepoPath, State};
 use crate::problem::{self, Problem};
+use crate::proof::{self, Cited, ProofObjects};
 use crate::review::{self, Review};
 use crate::specialists::{self, Specialist};
 use crate::verified::{self, Verified};
@@ -34,6 +35,38 @@ impl ReviewDir {
             .flat_map(|(_, review)| review.cited_paths());
         let verified = self.verified.iter().flat_map(Verified::cited_paths);
         problem.chain(reviews).chain(verified).cloned().collect()
+    }
+
+    /// Every finding's proof; a kept finding's commit must be on the merged proofs branch.
+    pub fn proofs(&self) -> Vec<Cited<'_>> {
+        let reviews = self.reviews.iter().flat_map(|(file, review)| {
+            review
+                .findings
+                .iter()
+                .enumerate()
+                .filter_map(move |(index, finding)| {
+                    Some(Cited {
+                        at: format!("{file}: findings[{index}].proof"),
+                        proof: finding.proof.as_ref()?,
+                        branch: None,
+                    })
+                })
+        });
+        let merged = proof::merged_branch(&self.state.head);
+        let verified = self.verified.iter().flat_map(|verified| {
+            verified
+                .findings
+                .iter()
+                .enumerate()
+                .filter_map(|(index, finding)| {
+                    Some(Cited {
+                        at: format!("verified.json: findings[{index}].proof"),
+                        proof: finding.proof.as_ref()?,
+                        branch: Some(merged.clone()),
+                    })
+                })
+        });
+        reviews.chain(verified).collect()
     }
 
     /// One `<file>: ok (…)` line per file checked.
@@ -79,6 +112,7 @@ pub fn check(
     specialists: &[Specialist],
     change: &Change,
     head: &HeadFiles,
+    proofs: &ProofObjects,
 ) -> Vec<Diagnostic> {
     let (dispatched, mut errors) = specialists::dispatched(
         specialists,
@@ -121,6 +155,11 @@ pub fn check(
             head,
         ));
     }
+    errors.extend(
+        dir.proofs()
+            .iter()
+            .filter_map(|cited| proof::check(cited, proofs)),
+    );
     if let Some(doc) = &dir.investigations {
         errors.extend(investigations::check(doc, &dir.reviews));
     }

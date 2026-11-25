@@ -31,7 +31,9 @@ Mode: `self` for the owner's own change (no target, own commit or range, or `fix
 else's PR/MR. Ask if unclear.
 
 Review directory: `~/.revy/reviews/<repo dir name>/<target, with / replaced by ->/`. Every scratch file, copy and build
-(probe scripts, build targets) goes under its `scratch/`; delete `scratch/` when the review is done. A review there of the same
+goes under its `scratch/`; probes and experiments run in git worktrees there, on local `revy/<h>/proofs-*` branches
+(`reviewer.md`, "Proofs branch"), so the reviewed branch changes only in the fix loop. When the review is done,
+delete `scratch/` and run `git -C <repo> worktree prune`; the branches stay. A review there of the same
 base and head: resume from it (the owner may have curated report.md). Of a different base or head: ask before
 overwriting. Done when `state.json` holds
 `{"repo": "<abs path>", "target": "<as given>", "base": "<sha>", "head": "<sha>", "mode": "self" | "team", "round": 1, "skill": "<this skill's directory>"}`;
@@ -92,7 +94,8 @@ lens reviewer's and dispatched specialist's `reviews/<n>.json` and, when there a
 `revy-review sync` renders `report.md` from `verified.json` (it refuses a review that does not check clean). Your own notes for the owner (what you checked, assumptions, anything that
 is not a finding) go in a `## Notes` section of report.md, which is never posted. Done when sync is clean and the
 owner has the path and a short summary: counts by severity, the blocking titles, the criteria verdicts, and the
-unresolved suspicions (report.md `## Suspicions (unconfirmed)`, each with the check that settles it).
+unresolved suspicions (report.md `## Suspicions (unconfirmed)`, each with the check that settles it), and the
+proofs branch when report.md's `## Proofs` names one.
 
 ## 4a. Self mode
 Deliver the report. With `fix`, run rounds, at most 3:
@@ -100,8 +103,11 @@ Deliver the report. With `fix`, run rounds, at most 3:
    `revy-review sync` first if it was edited).
 2. Settle questions first: investigate each; confirmed → it becomes a finding to fix; otherwise answer it in one line.
    Unresolved suspicions are the owner's call: list them with their checks and fix only those the owner confirms.
-3. Fix every remaining finding with the deepest fix the evidence supports; run the relevant tests.
-4. Commit the round once, staging exactly the files you edited (`git add <paths>`), so build output and caches
+3. Test first, per remaining finding: bring its proof test onto the branch — `git cherry-pick --no-commit` its
+   commit from `revy/<h>/proofs`, or port it into the repo's test layout when it is a standalone script; a finding
+   without proof gets a new test where the code can run here. Run it and confirm it fails. Then apply the deepest
+   fix the evidence supports and rerun: the test passes and the existing suite stays green.
+4. Commit the round once, tests and fixes together, staging exactly the files you edited (`git add <paths>`), so build output and caches
    stay out; the owner's uncommitted work stays uncommitted. Pushing is the
    owner's.
 5. Re-review the fix range `<commit before the fixes>..<round commit>` as its own target (steps 1–3, reusing this

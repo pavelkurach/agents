@@ -11,6 +11,7 @@ use crate::diff::Change;
 use crate::git::{self, ShellError};
 use crate::investigations;
 use crate::model::{Diagnostic, State, parse_json};
+use crate::proof;
 use crate::report;
 use crate::rules::{self, RuleSet};
 use crate::specialists::{self, Specialist};
@@ -226,7 +227,13 @@ fn checked(dir: &Path) -> Result<Result<(ReviewDir, Change), Vec<Diagnostic>>, S
     let (specialists, _) = specialists(state)?;
     let change = git::change(repo, &state.base, &state.head)?;
     let head = git::head_files(repo, &state.head, review_dir.cited_paths())?;
-    let errors = check::check(&review_dir, &rules, &specialists, &change, &head);
+    let queries = review_dir
+        .proofs()
+        .iter()
+        .map(proof::Cited::query)
+        .collect();
+    let proofs = git::proof_objects(repo, queries)?;
+    let errors = check::check(&review_dir, &rules, &specialists, &change, &head, &proofs);
     Ok(if errors.is_empty() {
         Ok((review_dir, change))
     } else {
@@ -288,6 +295,7 @@ fn run_sync(dir: &Path) -> Result<Outcome, ShellError> {
             &path,
             &report::render(
                 &review_dir.state.target,
+                &review_dir.state.head,
                 verified,
                 &unresolved,
                 &review_dir.state.skipped(),

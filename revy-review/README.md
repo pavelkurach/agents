@@ -31,6 +31,13 @@ From this folder:
 - `/revy-review` — review the current branch; `/revy-review <PR/MR | commit | A..B>`.
 - `/revy-review fix` — self-review and fix everything (one commit per round, never pushed).
 
+A finding the reviewers could reproduce comes with a new test that fails at head; report.md and the comments show
+the test, its command and its failure. Those tests live on a local branch `revy/<first 7 of head>/proofs`, named
+under report.md's `## Proofs` and never pushed or merged into the reviewed branch: `git checkout` it (or
+`git worktree add`) to run them, `git branch -D` it to drop it (the reviewers' own `…/proofs-<n>` branches go the
+same way). With `fix`, each proven finding's test moves onto your branch first, fails, then passes with the fix in
+the same commit; in team mode the PR branch is never touched.
+
 The CLI, run from a review directory (or given it as `[dir]`; each command reads `state.json` there):
 
 ```

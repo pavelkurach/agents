@@ -9,6 +9,7 @@ use crate::diff::{Change, HeadFiles};
 use crate::model::{
     Diagnostic, FindingId, RepoPath, Severity, Site, Sites, SuspicionId, Text, repeats,
 };
+use crate::proof::Proof;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +22,7 @@ pub struct Finding {
     pub breaks: Text,
     pub fix: Text,
     pub rule: Option<String>,
+    pub proof: Option<Proof>,
 }
 
 const FLOOR: [&str; 9] = [

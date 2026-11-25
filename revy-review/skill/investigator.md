@@ -11,13 +11,14 @@ asking, and read whatever code you need across the whole repository.
 For each suspicion:
 1. Start from its open question, not from the claim's wording: find the input, path or fact that decides it.
 2. Trace it to the end — every caller, producer, branch and configuration the question touches. When reading
-   cannot settle it, run it: a throwaway script or test in `<review directory>/scratch/` (the repository
-   stays untouched) that calls the code at head, and at base when the question is whether behaviour
-   changed. A suspicion about cost or base behaviour is refuted only by base and head compared on the real
+   cannot settle it, run it: a new test that drives the suspected input through the code at head, and at base
+   when the question is whether behaviour changed, written and committed in your own worktree on
+   `revy/<h>/proofs-<n>` exactly as `reviewer.md`'s "Probe" and "Proofs branch" sections say. A suspicion about cost or base behaviour is refuted only by base and head compared on the real
    operation — measured, or read line for line when it cannot run; a stubbed run settles control flow alone.
 3. Decide:
    - `confirmed`: you have a concrete input or sequence and the wrong outcome it produces. Write it as a finding in
-     `reviews/<n>.json` (format of `reviewer.md`'s Output, `"lens": "investigator"`) and name its id.
+     `reviews/<n>.json` (format of `reviewer.md`'s Output, `"lens": "investigator"`, with `proof` when your test
+     shows it) and name its id.
    - `refuted`: you have the evidence that the suspected failure cannot occur; say what rules it out.
    - `unresolved`: the evidence is outside the repository or beyond what can be run here. Leave the owner the
      fastest way to settle it: `check` names the exact command, input or question.

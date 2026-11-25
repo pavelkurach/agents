@@ -36,7 +36,10 @@ Design notes behind the rules base: `notes/`.
 - `<commit>`: `commit^..commit`
 - `<A>..<B>`: only that range (incremental re-review); impact still traced across the whole repository
 - `fix` (self mode): fix every finding, re-review the fixes, repeat until a round finds nothing new (max 3 rounds),
-  one commit per round, never push. Questions are settled first: fixed if confirmed, else answered in one line.
+  one commit per round (tests and fixes together), never push. Questions are settled first: fixed if confirmed, else
+  answered in one line. Test first: each finding's proof test (cherry-picked from the proofs branch, or ported into
+  the repo's test layout from a standalone script; a new failing test for a finding without proof where the code
+  can run) lands on the branch and fails before the fix, and passes after it with the existing suite green.
   Exclusions: "fix all except 4" or `post: no` in report.md.
 
 The agent resolves the target and records `base`/`head` in the review state; every later step uses them.
@@ -62,6 +65,17 @@ The agent resolves the target and records `base`/`head` in the review state; eve
 3. `revy-review sync` renders `report.md` (editable) from `verified.json`.
 4. Self mode: deliver report, or run the `fix` loop. Team mode: curate → post.
 
+## Proofs
+- A probe is a new test that drives a unit's riskiest edge-case cells through the changed code — in the repo's own
+  test framework and layout where it can run, a standalone script otherwise; rerunning the existing suite or a search
+  is not a probe. `why_not_run` stays for code that cannot run here.
+- Tests and experiments never touch the reviewed branch. Each reviewer n and the investigator work in their own git
+  worktree `<review dir>/scratch/proofs-<n>` on local branch `revy/<h>/proofs-<n>` from head (`<h>` = first 7
+  characters of head) and commit each probe test there. The verifier cherry-picks one proving commit per kept
+  finding onto `revy/<h>/proofs` from head, reruns each, and cites the new shas. Branches live in the repo's refs, so
+  they survive the deletion of `scratch/` (followed by `git worktree prune`); none is ever pushed. Team mode never
+  touches the PR branch; self mode's `fix` loop moves the proof tests onto the branch as regression tests.
+
 ## Extensions
 - Rules: see Rules.
 - Specialists: `reviewers/<name>.md` in the skill (the built-in focused reviewers) and in `~/.revy-review/` (the
@@ -85,7 +99,8 @@ The agent resolves the target and records `base`/`head` in the review state; eve
   severity or site, a posted block without its fix) and a warning for a line outside the diff (it would post as a
   general comment).
 - `revy-review comments` prints each post-ready comment: `path:line`, conventional-comments header
-  (`issue (blocking): …`), why it breaks, fix. No process artifacts (ids, rule ids, paths, tool mentions). Optional
+  (`issue (blocking): …`), why it breaks, the reproducing test when proven, fix. No process artifacts (ids, rule
+  ids, review-directory paths, tool mentions). Optional
   footer is config, off by default. Tone follows the owner's `voice.md`.
 - The agent posts them as a **draft/pending review** with whatever forge tool exists, after confirming the scope;
   verifies each landed inline where intended.
@@ -110,7 +125,11 @@ All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are
 - `reviews/<n>.json`: `{"reviewer": n, "lens": text | null, "ledger": [{"kind": "contract" | "unit", "subject":
   contract text or unit name, "site", "verdict": "fine" | "finding", "finding": finding id | null, "cases": {dimension: text, …} (unit only)}],
   "findings": [{"id": "<n>.<k>", "title", "severity": "blocking" | "non-blocking" | "question" | "suggestion",
-  "sites": [site, …], "quote": exact line at the first site, "breaks", "fix", "rule": rule id | null}]}`.
+  "sites": [site, …], "quote": exact line at the first site, "breaks", "fix", "rule": rule id | null,
+  "proof": {"test": "<path>::<test name or line>", "commit": sha, "cmd", "head": failing output excerpt, "base":
+  output at base | "n/a"} (optional)}]}`. A `proof` is checked strictly: every field non-blank, `test` splits at its
+  first `::` into a repo-relative path and a name, `commit` is a commit in the repository and `test`'s path exists in
+  it. A finding without `proof` keeps the evidence rules above.
   A `unit` entry must carry `cases` answering every floor
   dimension (size, boundaries, absence, shape, variants, state, failure, concurrency, vs_base) with a non-empty text (the case
   walked and its outcome, or n/a and why; `vs_base` names what base guaranteed and whether head keeps it, or `new`); extra dimensions are allowed; `cases` on other kinds is rejected.
@@ -130,15 +149,18 @@ All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are
   it); `unresolved`
   needs `check` (how a human verifies it quickly); `finding` is null unless confirmed, `check` null unless unresolved.
 - `verified.json`: `{"findings": [{"id": "F<k>", …same fields…, "merged_from": ["<n>.<k>", …]}], "dropped":
-  [{"from": "<n>.<k>", "refuted_by": site, "why"}]}`. `check`: every reviewer finding appears
-  exactly once in `merged_from` or `dropped`; `refuted_by` exists at head. With `verified.json` present, `check` also
+  [{"from": "<n>.<k>", "refuted_by": site, "why"}]}` (`proof` optional, as in reviews). `check`: every reviewer finding appears
+  exactly once in `merged_from` or `dropped`; `refuted_by` exists at head; a kept finding's `proof.commit` is also
+  reachable from `refs/heads/revy/<h>/proofs`, the branch report.md names. With `verified.json` present, `check` also
   requires `reviews/1.json..N.json` (N = 4 lens reviewers + the specialists `state.json` records as dispatched), unless `problem.json` has
   `blocks: true` and none of `reviews/1..N` exists (the gate stopped the review before reviewers ran), and, when any
   review holds a suspicion, `investigations.json`; confirmed findings are ordinary review findings and need the same
   exactly-once accounting.
 - `report.md` (rendered by `sync` from `verified.json`, edited by the owner): one block per kept finding —
   `### F<k>. <title>` then `- post: yes | no`, `- severity: …`, `- where: site, site`, a blank line, the body
-  (why it breaks, then `Fix: …`) up to the next `##`/`###` heading. `## My findings` takes `- site [severity] — text`.
+  (why it breaks, then `Fix: …`) up to the next `##`/`###` heading. A proven finding's body holds, between why and
+  fix, ``Reproduced by `<test>` — `<cmd>`:`` and its failing excerpt indented as code, then `At base:` and the base
+  output unless `base` is `n/a`; after the findings, `## Proofs` names the branch and how to run or drop it. `## My findings` takes `- site [severity] — text`.
   Unresolved suspicions render after the findings under `## Suspicions (unconfirmed)` as `### <claim>` with
   `- where:`, `- evidence:`, `- open question:` and `- check:` lines; skipped specialists then render under
   `## Specialists skipped` as `- <name>: <reason>`, so a wrong skip is visible. Reading back, only `post: yes` finding blocks and
@@ -146,8 +168,8 @@ All JSON, UTF-8. `site` = `"path:line"` (repo-relative, line at `head`). Ids are
   `report.md:line`; a site outside the diff is a warning (it would post as a general comment). Every other block and
   section (suspicions, notes, anything the owner adds) is ignored and never posted.
 - `comments` prints, per `post: yes` finding and per own finding: `site` line, then
-  `<label> (<blocking|non-blocking>): <title>` (conventional comments: issue / question / suggestion), body, fix;
-  no ids, rule ids or tool mentions.
+  `<label> (<blocking|non-blocking>): <title>` (conventional comments: issue / question / suggestion), body (with
+  its reproduction), fix; no ids, rule ids or tool mentions; `## Proofs` is never printed.
 
 Resolved details (skill and helper agree on these):
 - Review dir: every command takes an optional `<dir>` defaulting to the current directory and reads

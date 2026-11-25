@@ -75,15 +75,24 @@ the case you walked and its outcome at head, or `n/a` and why. A unit is done wh
 environment that reaches it and is missing from its matrix.
 
 ## Probe: run the riskiest cells
-Reading settles a cell's outcome only as far as running it would agree. For each `unit` entry, run a probe: a
-throwaway script or test in `<review directory>/scratch/` that calls the unit at head — and at base
-when the question is whether behaviour or cost changed — with the inputs of its riskiest cells at their extremes:
-scale as depth, length and thread count as well as item count, timed when cost matters; empty and absent inputs; a
-failure midway. A probe that stubs or skips the costly operation settles control flow, never cost. When the unit
-has existing tests, run the package's tests for its module or crate unfiltered. Record the command and what it printed as
-`probe`. A wrong outcome the probe shows is a finding. When the code cannot run here (missing toolchain or service,
-build too slow), record why as `probe.why_not_run`; the riskiest cell is then unproven, so the unit's verdict is
-`suspect` with that cell as the claim. The repository stays untouched; work offline.
+Reading settles a cell's outcome only as far as running it would agree. For each `unit` entry, the probe is a new
+test that drives its riskiest cells' inputs through the changed code at their extremes: scale as depth, length and
+thread count as well as item count, timed when cost matters; empty and absent inputs; a failure midway. Write it in
+the repo's own test framework and layout where it can run there, a standalone script otherwise; run it at head, and
+at base when the question is whether behaviour or cost changed. A probe that stubs or skips the costly operation
+settles control flow, never cost; rerunning the existing suite or a search settles nothing about the new case. When
+the unit has existing tests, also run the package's tests for its module or crate unfiltered. Record the command
+and what it printed as `probe`. A wrong outcome the probe shows is a finding, and that probe is its `proof`. When the
+code cannot run here (missing toolchain or service, build too slow), record why as `probe.why_not_run`; the riskiest
+cell is then unproven, so the unit's verdict is `suspect` with that cell as the claim. Work offline.
+
+## Proofs branch
+Every probe, test and experiment lives in your own worktree on a local proofs branch, so the reviewed branch and the
+repo's checkout stay exactly as they were: with `<h>` = the first 7 characters of head,
+`git -C <repo> worktree add -b revy/<h>/proofs-<n> <review directory>/scratch/proofs-<n> <head>` (an existing
+branch of that name is left from an earlier run of this review: use `-B`). Build output stays in that worktree.
+Commit each probe test there on its own, staging only its files. That branch is the only one you commit to; it stays
+local, unpushed.
 
 ## Rules floor
 The rules index lists every review rule, one line each: id, topic, optional langs hint, and when it
@@ -109,15 +118,20 @@ Write `reviews/<n>.json` (`site` = `"path:line"`, repo-relative, line at head):
                "severity": "blocking" | "non-blocking" | "question" | "suggestion",
                "sites": ["path:line", …], "quote": "the exact line at the first site, at head",
                "breaks": "the concrete input or sequence of events, the wrong outcome, and who is affected",
-               "fix": "the change you propose", "rule": "rule id" | null}]}
+               "fix": "the change you propose", "rule": "rule id" | null,
+               "proof": {"test": "path::test name or line", "commit": "sha on your proofs branch",
+                         "cmd": "the command that runs it", "head": "the failing output, a short excerpt",
+                         "base": "its output at base" | "n/a"} (only when a committed test shows the defect)}]}
 ```
 
 - Ledger: one `contract` entry per consumer or producer you checked (subject = the contract, site = the consumer
   or producer) and one `unit` entry per changed unit with real logic (its edge-case matrix and probe). A `finding` verdict
   names a finding id in this file.
 - `rule` is the id of the rule the finding answers (the file name, as the index prints it), or null.
+- `proof` makes the finding reproducible: the test is its committed probe (`base` is `n/a` when it cannot run at
+  base). A finding without one stands on its quote and `breaks`.
 
 Done when every touched contract has an entry for each of its consumers and producers, every changed unit with real
-logic has a complete edge-case matrix and a probe, every applicable rule is answered at every matching site, and every changed
+logic has a complete edge-case matrix and a probe, every finding a probe showed carries its proof, every applicable rule is answered at every matching site, and every changed
 file has at least one entry — for a specialist, all of this within its focus, with entries only for the files it covers. `revy-review check` validates the file (schema, quotes at head within ±3 lines, ledger
-coverage, rule ids, the matrix floor, the probe); you may be sent its errors to fix. Reply `done` when the file is written.
+coverage, rule ids, the matrix floor, the probe, each proof's commit and test file); you may be sent its errors to fix. Reply `done` when the file is written.

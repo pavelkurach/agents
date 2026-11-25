@@ -12,6 +12,7 @@ use crate::model::{
     VerifiedId, deserialize_from_str, repeats,
 };
 use crate::problem::{CriterionVerdict, Problem};
+use crate::proof::Proof;
 use crate::review::{Review, check_finding};
 
 /// What a kept or dropped finding came from.
@@ -58,6 +59,7 @@ pub struct VerifiedFinding {
     pub breaks: Text,
     pub fix: Text,
     pub rule: Option<String>,
+    pub proof: Option<Proof>,
     pub merged_from: Vec<Origin>,
 }
 

@@ -8,7 +8,9 @@
 mod support;
 
 use predicates::prelude::PredicateBooleanExt;
-use support::{Fixture, fixture, read, review_with_two_findings, valid_verified, write};
+use support::{
+    Fixture, PROOF_TEST, fixture, proof, read, review_with_two_findings, valid_verified, write,
+};
 
 const RENDERED: &str = "# Review: feature
 
@@ -249,6 +251,98 @@ fn sync_lists_each_skipped_specialist_with_its_reason() {
             "## Specialists skipped\n\n- migrations: the change adds no migration\n\n## My findings\n"
         )
     );
+}
+
+// --- proofs --------------------------------------------------------------------
+
+/// The total finding proven by a test on the merged proofs branch; returns the branch.
+fn with_proven_finding() -> (Fixture, String) {
+    let fx = with_verified();
+    let branch = fx.proofs_branch();
+    let commit = fx.commit_on_branch(&branch, "tests/calc_test.rs", PROOF_TEST);
+    let mut verified = valid_verified();
+    verified["findings"][0]["proof"] = proof(&commit);
+    fx.write_json("verified.json", &verified);
+    (fx, branch)
+}
+
+#[test]
+fn sync_renders_a_proven_findings_reproduction_and_the_proofs_branch() {
+    let (fx, branch) = with_proven_finding();
+
+    let assert = sync(&fx);
+
+    assert.success();
+    assert_eq!(
+        read(fx.dir.path(), "report.md"),
+        RENDERED
+            .replace(
+                "short by its last line.\n\nFix:",
+                "short by its last line.\n\nReproduced by `tests/calc_test.rs::total_counts_the_last_item` — `cargo test --test calc_test`:\n\n    assertion `left == right` failed\n      left: 1\n     right: 3\n\nAt base:\n\n    test total_counts_the_last_item ... ok\n\nFix:",
+            )
+            .replace(
+                "## My findings\n",
+                &format!("## Proofs\n\nThe reproducing tests are on local branch `{branch}`, never pushed: check it out to run them; `git branch -D {branch}` drops it.\n\n## My findings\n"),
+            )
+    );
+}
+
+#[test]
+fn sync_omits_the_base_result_of_a_proof_that_cannot_run_at_base() {
+    let (fx, _) = with_proven_finding();
+    let mut verified: serde_json::Value =
+        serde_json::from_str(&read(fx.dir.path(), "verified.json")).unwrap();
+    verified["findings"][0]["proof"]["base"] = serde_json::json!("n/a");
+    fx.write_json("verified.json", &verified);
+
+    let assert = sync(&fx);
+
+    assert.success();
+    assert!(
+        read(fx.dir.path(), "report.md")
+            .contains("     right: 3\n\nFix: Sum every item: items.iter().sum().")
+    );
+}
+
+#[test]
+fn comments_carry_a_proven_findings_reproduction() {
+    let (fx, _) = with_proven_finding();
+    sync(&fx).success();
+
+    let assert = comments(&fx);
+
+    assert.success().stdout(predicates::str::starts_with(
+        "src/calc.rs:2
+issue (blocking): total drops the last item
+
+total(&[1, 2]) returns 1, so every invoice is short by its last line.
+
+Reproduced by `tests/calc_test.rs::total_counts_the_last_item` — `cargo test --test calc_test`:
+
+    assertion `left == right` failed
+      left: 1
+     right: 3
+
+At base:
+
+    test total_counts_the_last_item ... ok
+
+Fix: Sum every item: items.iter().sum().
+---
+",
+    ));
+}
+
+#[test]
+fn comments_never_print_the_proofs_branch() {
+    let (fx, branch) = with_proven_finding();
+    sync(&fx).success();
+
+    let assert = comments(&fx);
+
+    assert
+        .success()
+        .stdout(predicates::str::contains(branch).not());
 }
 
 // --- suspicions ----------------------------------------------------------------
