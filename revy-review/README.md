@@ -71,9 +71,12 @@ Report as: `<amount>` is a float, so `<operation>` rounds cents; fix: integer mi
 
 The four core reviewers receive every rule, of every topic, whose `langs` match; findings cite a rule by its id.
 
-**A specialist** runs on every review as reviewer 5, 6, … (built-ins first, then yours, file-name order), after the
-four core reviewers. Its file is an optional first line `rules: <topic>, …`, then the prompt: what it reviews. It
-reviews only that, and writes an empty review when the change has nothing for it.
+**A specialist** runs after the four core reviewers, as reviewer 5, 6, … (built-ins first, then yours, file-name
+order, counting only the ones dispatched). Its file starts with optional header lines in any order — `rules:
+<topic>, …` and `dispatch: always | when relevant` — then the prompt: what it reviews. It reviews only that, and
+writes an empty review when the change has nothing for it. `always` (the default) runs it on every review; `when
+relevant` lets the coordinator skip it when the change holds nothing for its prompt (when unsure, it runs), and
+report.md lists each skip with its reason under `## Specialists skipped`.
 
 With rules, `~/.revy-review/reviewers/payments.md` receives the rules of those topics, from both rules folders:
 
@@ -85,9 +88,12 @@ that amounts never pass through floats, and that each state change of a payment 
 in the same transaction.
 ```
 
-Without the line, `~/.revy-review/reviewers/feature-flags.md` gets no rules, only its prompt:
+Without a `rules:` line, `~/.revy-review/reviewers/feature-flags.md` gets no rules, only its prompt, and runs only
+on changes that touch flags:
 
 ```markdown
+dispatch: when relevant
+
 Feature flags: every flag the change adds, reads or removes. Check that the default is the old behaviour, that
 both branches are tested, and that a removed flag has no remaining reads in code, config or dashboards.
 ```
@@ -96,13 +102,14 @@ both branches are tested, and that a removed flag has no remaining reads in code
 `git clone <url> ~/.revy-review` once and `git -C ~/.revy-review pull` to update.
 
 **Validate** with `revy-review rules` (from a review directory): it prints the rules index, then
-`Reviewer <n>: <name> — <file>` per specialist with its rules below it. It exits 1 and prints, per broken file:
+`Specialist: <name> (dispatch: <mode>) — <file>` per specialist with its rules below it. It exits 1 and prints, per broken file:
 - `<file>: rule id <id> is also <other file>` — rule ids are unique across both rules folders and all topics.
 - `` <file>: rule <id> has no `langs: …` line `` (or `When: …`).
 - `<file>: specialist <name> is also <other file>` — names are unique across `skill/reviewers/` and yours.
 - `` <file>: specialist <name> names rule folder `<topic>`, which no rules directory has `` — a typo, or a topic
   with no rules.
 - `<file>: specialist <name> has no prompt; write what it reviews`.
+- `` <file>: specialist <name>: `dispatch: <value>` is not `always` or `when relevant` ``.
 
 Fix every error before reviewing; a rule or specialist file that does not parse is left out of the index.
 

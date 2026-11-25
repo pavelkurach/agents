@@ -126,6 +126,14 @@ impl Fixture {
         self.write_json("state.json", state);
     }
 
+    /// Records the coordinator's specialist decisions in `state.json`.
+    pub fn record_specialists(&self, decisions: &Value) {
+        let mut state: Value =
+            serde_json::from_str(&read(self.dir.path(), "state.json")).expect("state.json");
+        state["specialists"] = decisions.clone();
+        self.write_state(&state);
+    }
+
     pub fn write_json(&self, relative: &str, value: &Value) {
         write(
             self.dir.path(),

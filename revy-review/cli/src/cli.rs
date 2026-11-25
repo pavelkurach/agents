@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::check::{self, LENS_REVIEWERS, ReviewDir};
+use crate::check::{self, ReviewDir};
 use crate::diff::Change;
 use crate::git::{self, ShellError};
 use crate::investigations;
@@ -224,13 +224,9 @@ fn checked(dir: &Path) -> Result<Result<(ReviewDir, Change), Vec<Diagnostic>>, S
     }
     // A broken specialist file is `revy-review rules`'s to report; nobody dispatches it.
     let (specialists, _) = specialists(state)?;
-    let reviewers = (LENS_REVIEWERS + 1..)
-        .zip(&specialists)
-        .last()
-        .map_or(LENS_REVIEWERS, |(n, _)| n);
     let change = git::change(repo, &state.base, &state.head)?;
     let head = git::head_files(repo, &state.head, review_dir.cited_paths())?;
-    let errors = check::check(&review_dir, &rules, reviewers, &change, &head);
+    let errors = check::check(&review_dir, &rules, &specialists, &change, &head);
     Ok(if errors.is_empty() {
         Ok((review_dir, change))
     } else {
@@ -267,9 +263,8 @@ fn run_rules(dir: &Path) -> Result<Outcome, ShellError> {
     errors.extend(specialists::unknown_rule_folders(&found, &topics));
     let change = git::change(state.repo.as_path(), &state.base, &state.head)?;
     let langs: BTreeSet<&str> = change.files().filter_map(rules::lang_of).collect();
-    let specialist_index = specialists::index(&found, LENS_REVIEWERS + 1, |folders| {
-        rules::index(&sets, &langs, Some(folders))
-    });
+    let specialist_index =
+        specialists::index(&found, |folders| rules::index(&sets, &langs, Some(folders)));
     Ok(Outcome {
         stdout: rules::index(&sets, &langs, None) + &specialist_index,
         warnings: Vec::new(),
@@ -294,7 +289,12 @@ fn run_sync(dir: &Path) -> Result<Outcome, ShellError> {
             .unwrap_or_default();
         git::write(
             &path,
-            &report::render(&review_dir.state.target, verified, &unresolved),
+            &report::render(
+                &review_dir.state.target,
+                verified,
+                &unresolved,
+                &review_dir.state.skipped(),
+            ),
         )?;
     }
     let report = valid!(report::parse(&git::read(&path)?));

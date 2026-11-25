@@ -303,6 +303,16 @@ impl TryFrom<PathBuf> for AbsolutePath {
     }
 }
 
+/// The coordinator's per-review decision for one specialist.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Decision {
+    /// `"dispatched"`
+    Dispatched,
+    /// `{"skipped": "<reason>"}`
+    Skipped(Text),
+}
+
 /// The fields of `state.json` the helper reads; `mode` and `round` steer only the skill.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct State {
@@ -312,6 +322,22 @@ pub struct State {
     pub head: Sha,
     /// This skill's directory: its `rules/` and `reviewers/` (specialists) load first.
     pub skill: AbsolutePath,
+    /// Specialist name → decision; absent until the coordinator decides, before step 1.
+    pub specialists: Option<BTreeMap<String, Decision>>,
+}
+
+impl State {
+    /// `(name, reason)` of every skipped specialist, in name order.
+    pub fn skipped(&self) -> Vec<(&str, &Text)> {
+        self.specialists
+            .iter()
+            .flatten()
+            .filter_map(|(name, decision)| match decision {
+                Decision::Skipped(reason) => Some((name.as_str(), reason)),
+                Decision::Dispatched => None,
+            })
+            .collect()
+    }
 }
 
 /// Parses JSON into `T`, naming the failing field path on error.

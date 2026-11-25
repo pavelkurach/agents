@@ -231,7 +231,7 @@ fn empty_plugin_folder_leaves_the_built_in_index() {
 }
 
 #[test]
-fn specialists_are_listed_skills_first_and_numbered_from_5() {
+fn specialists_are_listed_skills_first_then_in_file_name_order() {
     let fx = fixture();
     write(
         fx.skill.path(),
@@ -252,9 +252,9 @@ fn specialists_are_listed_skills_first_and_numbered_from_5() {
     let assert = rules(&fx);
 
     assert.success().stdout(predicates::str::ends_with(format!(
-        "Reviewer 5: migrations — {}/reviewers/migrations.md\n\
-         Reviewer 6: api-compat — {1}/reviewers/api-compat.md\n\
-         Reviewer 7: security — {1}/reviewers/security.md\n",
+        "Specialist: migrations (dispatch: always) — {}/reviewers/migrations.md\n\
+         Specialist: api-compat (dispatch: always) — {1}/reviewers/api-compat.md\n\
+         Specialist: security (dispatch: always) — {1}/reviewers/security.md\n",
         fx.skill.path().display(),
         fx.plugin().display()
     )));
@@ -295,7 +295,7 @@ fn specialist_with_rules_line_gets_an_index_of_those_folders_only() {
     let assert = rules(&fx);
 
     assert.success().stdout(predicates::str::ends_with(format!(
-        "Reviewer 5: bounds — {}/reviewers/bounds.md\n  {}  edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n",
+        "Specialist: bounds (dispatch: always) — {}/reviewers/bounds.md\n  {}  edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n",
         fx.plugin().display(),
         index_header(&fx)
     )));
@@ -315,7 +315,7 @@ fn specialist_without_rules_line_is_listed_with_no_rules() {
     assert.success().stdout(format!(
         "{}edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n\
          arc-mutex-single-owner (rust) [rust] — The diff wraps state in `Arc<Mutex<_>>`.\n\
-         Reviewer 5: security — {}/reviewers/security.md\n",
+         Specialist: security (dispatch: always) — {}/reviewers/security.md\n",
         index_header(&fx),
         fx.plugin().display()
     ));
@@ -348,9 +348,112 @@ fn specialist_without_a_prompt_is_an_error_naming_its_file_and_is_not_listed() {
     assert
         .failure()
         .code(1)
-        .stdout(predicates::str::contains("Reviewer").not())
+        .stdout(predicates::str::contains("Specialist").not())
         .stderr(format!(
             "{}/reviewers/security.md: specialist security has no prompt; write what it reviews\n",
             fx.plugin().display()
         ));
+}
+
+#[test]
+fn specialist_without_dispatch_line_is_dispatched_always() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "rules: logic\n\nAuthorization on every changed handler.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.success().stdout(predicates::str::contains(format!(
+        "Specialist: security (dispatch: always) — {}/reviewers/security.md\n",
+        fx.plugin().display()
+    )));
+}
+
+#[test]
+fn dispatch_when_relevant_after_the_rules_line_is_listed_with_its_mode() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "reviewers/bounds.md",
+        "rules: logic\ndispatch: when relevant\n\nEvery changed range bound.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.success().stdout(predicates::str::ends_with(format!(
+        "Specialist: bounds (dispatch: when relevant) — {}/reviewers/bounds.md\n  {}  edge-of-range-change (logic) [any] — The diff changes a comparison or range bound.\n",
+        fx.plugin().display(),
+        index_header(&fx)
+    )));
+}
+
+#[test]
+fn dispatch_line_before_the_rules_line_is_accepted() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "reviewers/bounds.md",
+        "dispatch: always\nrules: logic\n\nEvery changed range bound.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.success().stdout(predicates::str::contains(format!(
+        "Specialist: bounds (dispatch: always) — {}/reviewers/bounds.md\n  {}",
+        fx.plugin().display(),
+        index_header(&fx)
+    )));
+}
+
+#[test]
+fn dispatch_value_other_than_always_or_when_relevant_is_an_error_naming_its_file() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "dispatch: sometimes\n\nAuthorization on every changed handler.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.failure().code(1).stderr(format!(
+        "{}/reviewers/security.md: specialist security: `dispatch: sometimes` is not `always` or `when relevant`\n",
+        fx.plugin().display()
+    ));
+}
+
+#[test]
+fn readme_in_the_reviewers_folder_is_not_a_specialist() {
+    let fx = fixture();
+    write(
+        fx.skill.path(),
+        "reviewers/README.md",
+        "# Specialists\n\nEvery file here is a specialist.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert
+        .success()
+        .stdout(predicates::str::contains("Specialist").not());
+}
+
+#[test]
+fn dispatch_line_given_twice_is_an_error_naming_its_file() {
+    let fx = fixture();
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "dispatch: always\ndispatch: when relevant\n\nAuthorization on every changed handler.\n",
+    );
+
+    let assert = rules(&fx);
+
+    assert.failure().code(1).stderr(format!(
+        "{}/reviewers/security.md: specialist security: `dispatch:` appears twice; keep one\n",
+        fx.plugin().display()
+    ));
 }

@@ -17,8 +17,8 @@ the change introduces or exposes — and also:
 With a lens, review everything above, but go deepest on `<lens>`. Read whatever code you need. Report what only a reviewer
 catches; compiler, linter, existing-test and style issues belong to those tools.
 
-**Specialist** — dispatched with a specialist file instead of a lens: the file's text below its optional `rules:`
-line is your focus. Review only the code, impact and tests your focus covers, and every section below applies
+**Specialist** — dispatched with a specialist file instead of a lens: the file's text below its optional `rules:` and
+`dispatch:` header lines is your focus. Review only the code, impact and tests your focus covers, and every section below applies
 within it. When nothing in the change falls under your focus, write `reviews/<n>.json` with empty `ledger` and
 `findings` and reply that the change has nothing for this focus. In your output, `lens` is the file's name
 without `.md`.
