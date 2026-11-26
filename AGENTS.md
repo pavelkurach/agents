@@ -42,7 +42,11 @@
 
 ## Subagents
 
-- **Checkpointing.** For every subagent, define a task-local checkpoint that records completed work, remaining work, and restart instructions. Require the subagent to update it after each completed unit of work so another agent can resume without repeating completed work.
+- **Delegation.** Protect the primary context by dispatching every clearly specified, self-contained task whose result matters more than its process—such as implementation or review—to a subagent; keep work local only when coordination or context-transfer costs outweigh the context saved.
+- **Context boundary.** Give each subagent only the task context it needs—scope, constraints, relevant evidence, and completion criterion—and require a concise return containing the result, verification, material risks, and unresolved decisions.
+- **Parallelism.** Maximize safe concurrency by dispatching independent, non-overlapping tasks together; sequence only genuine data, state, or decision dependencies.
+- **Nesting.** Use nested subagents only when another independent context boundary saves more context than it costs.
+- **Checkpointing.** For subagent work spanning multiple resumable units, maintain a task-local checkpoint recording completed work, remaining work, and restart instructions; update it after each completed unit.
 - **Model selection.** Select the most token-efficient model and reasoning effort that preserves quality and accuracy: use weaker models at lower effort for simple mechanical work, and stronger models at higher effort for complex or judgment-heavy work.
 
 ## Superpowers
