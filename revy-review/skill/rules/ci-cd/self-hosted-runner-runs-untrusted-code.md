@@ -1,0 +1,6 @@
+# self-hosted-runner-runs-untrusted-code
+langs: github-actions
+
+When: `runs-on:` names a self-hosted runner or label in a workflow triggered by `pull_request`, `pull_request_target`, `issue_comment` or another event outsiders can cause.
+Ask: A self-hosted runner is not a fresh VM: a job can leave a process, a patched toolchain or a modified cache for the next job, from any repository the runner group serves, and can read what the machine holds (SSH keys, cloud credentials from the metadata service, the Docker socket). On a public repository any fork PR runs there; on a private one, anyone who can fork. An environment with required reviewers gates its secrets, not the machine. Is the runner just-in-time or `--ephemeral` (one job, then deregistered) on a machine rebuilt for every job, since deregistering does not wipe the host, in a group limited to this repository, and does the job pass secrets by environment or file rather than command-line arguments, which `ps` shows to other jobs on the host?
+Report as: `<workflow>` runs `<untrusted trigger>` jobs on self-hosted `<label>`: an outsider gets `<host credentials / persistence across later jobs and repositories>`; fix: GitHub-hosted runners for untrusted triggers, or just-in-time runners in a group restricted to this repository.
