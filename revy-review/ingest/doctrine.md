@@ -11,9 +11,10 @@ Record one per claim, with a one-line reason that names the evidence.
 |---|---|---|
 | keep | effective, concise and generic | the non-obvious fact the rule carries |
 | merge `<id>` | the fact belongs on an existing rule's trigger | the rule, and what it gains (an Ask fact, a wider When, a Not when) |
+| supports `<id>` | the claim only backs a fact an existing or drafted rule already carries; neither a new rule nor a cut | the rule, and the fact it backs |
 | own | effective and concise, but true only of the owner's own systems (their postmortem, their services) | the system; it goes to `~/.revy-review/rules/` |
 | cut: known | a strong reviewer running `reviewer.md` raises it unprompted: textbook, "be careful with X", "validate input", "add tests", "handle errors" | the default behaviour that already covers it |
-| cut: linter | a mainstream compiler or linter flags it | the check (`B006`, `clippy::…`, `@typescript-eslint/…`) |
+| cut: linter | a check that runs by default in the repo's CI or editor flags it: the compiler, a default-on lint. An opt-in tool that usually does not run (zizmor, CodeQL for Actions, Docker build checks) leaves the rule standing | the check (`B006`, `clippy::…`, `@typescript-eslint/…`) and where it runs |
 | cut: covered | an existing rule or `reviewer.md` already states it | the rule id or the `reviewer.md` line |
 | cut: no trigger | nothing visible in a diff marks where it applies (architecture, process, team practice) | why no diff shows it |
 | cut: unverifiable | the fact cannot be confirmed against docs, source code, a changelog or a reproduction | what was checked |

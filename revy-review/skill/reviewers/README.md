@@ -27,6 +27,8 @@ method or the output format. The specialist reviews only what its focus covers, 
 the change has nothing for it.
 
 ## Built-in
+- `ci-cd.md` (`when relevant`) — CI/CD pipelines, and the images and dependencies they build: who can trigger each
+  job, what it holds while that input runs, and which refs others control.
 - `migrations.md` (`when relevant`) — schema and data migrations: non-blocking, idempotent, safe to rerun after a
   partial failure.
 

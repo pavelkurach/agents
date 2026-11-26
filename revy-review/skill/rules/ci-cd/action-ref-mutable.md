@@ -1,0 +1,7 @@
+# action-ref-mutable
+langs: github-actions
+
+When: `uses:` of a third-party action or reusable workflow by tag or branch, a `docker://` image by tag, or a change to an action's pinned ref.
+Ask: A tag or branch resolves when the job starts, and whoever controls the action's repository can move it; the action then gets every secret the job references and its token. Is the ref a full 40-character commit SHA, and is that commit in the action's own repository rather than only in a fork of it? A SHA pin does not pin the actions a composite action or reusable workflow itself `uses:` by tag. A lockfile (`.github/workflows/actions.lock`, `gh actions-lock`) pins transitive actions and rejects fork-only commits, but not `jobs.<id>.uses`. Dependabot alerts and security updates skip SHA pins, so a SHA pin stays patched only through Dependabot version updates, which also keep a same-line `# vX.Y.Z` comment current. A full-version tag of an immutable release cannot move; a major tag such as `@v4` is a plain tag its maintainer moves.
+Not when: local actions (`./…`) · a workflow onboarded to `actions.lock`, for the actions it covers.
+Report as: `<uses>` runs whatever `<ref>` points to at run time: a moved tag runs attacker code with `<secrets / token>`; fix: pin to a full commit SHA from the action's own repository with a `# vX.Y.Z` comment (an image to its `@sha256:` digest), or onboard the workflow to `actions.lock`.

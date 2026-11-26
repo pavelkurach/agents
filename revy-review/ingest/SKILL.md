@@ -23,7 +23,7 @@ A strong reviewer already catches the textbook case, the linter's case and the g
 | name | what |
 |---|---|
 | `<revy>` | the revy-review skill: `realpath` of this skill's directory, then `../skill` (`REVY_SKILL` overrides) |
-| `<work>` | `~/.revy/ingest/<source slug>/`: `claims.md`, `drafts/<topic>/<id>.md`, `specialists/<name>.md`, `critique.md`. Resume from it when it exists |
+| `<work>` | `~/.revy/ingest/<source slug>/`: `claims.md`, `drafts/<topic>/<id>.md`, `specialists/<name>.md`, `critique.md`, `verification.md`. Resume from it when it exists |
 | `scripts/rules.sh` | in this skill's directory: `index` lists every rule and specialist; `lint <file>…` checks drafts; `check [file…]` runs `revy-review rules` over both rule folders, then lint |
 
 Read `<revy>/rules/README.md` (rule format), `<revy>/reviewer.md` (what a reviewer already does) and
@@ -36,13 +36,13 @@ Read `<revy>/rules/README.md` (rule format), `<revy>/reviewer.md` (what a review
 | PDF | Read with `pages`, 20 at a time |
 | EPUB | `pandoc -t gfm <file> -o <work>/source.md`, then Read |
 | Markdown | Read |
-| URL | WebFetch; save the text into `<work>/source.md` |
+| URL | `curl -sL <url> \| pandoc -f html -t gfm -o <work>/source.md`, then Read: raw text, never a summarising fetch, which drops and invents facts. Every page this skill fetches, the critic's included, is read this way |
 | postmortem | Read; the claim is the failure's mechanism, not its timeline |
 | PR | `gh pr view <n> --json title,body,comments`, `gh pr diff <n>`, and the fix that followed; the claim is the mechanism review missed |
 
 A claim is a mechanism: construct → behaviour → consequence. Record every one, including those you expect to cut, as
 a row of `<work>/claims.md`: `| # | claim | location |`, location as `p.<n>`, `§<heading>`, `<url>#<anchor>` or
-`<file>:<line>`. For a book, dispatch one subagent per chapter in parallel, each returning its rows.
+`<file>:<line>`. Dispatch one subagent per source, and per chapter of a book, in parallel, each returning its rows.
 **Done when** every section of the source is read and every claim has a row with a location.
 
 ## 2. Apply the test
@@ -66,22 +66,29 @@ defect; facts carry their version or default. Use an existing topic folder unles
 
 Propose a specialist only when the source covers a whole domain, several kept rules share its topics, and no
 specialist in the index covers them: `<work>/specialists/<name>.md` in the format of `<revy>/reviewers/README.md`,
-modelled on `<revy>/reviewers/migrations.md`, stating the focus only.
+modelled on `<revy>/reviewers/migrations.md`, stating the focus only. Its `rules:` lists every topic folder that holds
+one of its rules, the topics of merged rules included.
 **Done when** `scripts/rules.sh lint <work>/drafts/*/*.md` exits 0.
 
 ## 5. Critique
 
-Dispatch one fresh subagent. Inputs: the drafts and any specialist, each draft's source location, this file's
-§ The test, `doctrine.md` and `<revy>/reviewer.md`; withhold your step 2 reasons so its read is unanchored. For each
-draft it returns keep, revise (the exact edit) or cut (a verdict from `doctrine.md`), after:
+Run at most two critic rounds, each a fresh subagent. Inputs: the drafts and any specialist, each draft's source
+location, this file's § The test, `doctrine.md` and `<revy>/reviewer.md`; withhold your step 2 reasons so its read is
+unanchored. For each draft it returns keep, revise (the exact edit) or cut (a verdict from `doctrine.md`), after:
 - sketching a real diff of a few lines the rule fires on, with a strong reviewer's verdict without the rule and with
   it; the same verdict is **cut: known**
 - confirming every fact (default, version, semantics) in a primary source — official docs, source code, changelog —
   cited by URL or path; an unconfirmed fact is fixed or **cut: unverifiable**
 
 Write its result to `<work>/critique.md`. Cut what it cuts; apply each revise once and re-lint. A revise that changes
-a fact goes back to a fresh critic.
-**Done when** every draft has a critic verdict and every revise is applied.
+a fact goes to the second round, and no third round follows it.
+
+Then verify every fact a draft carries that the source does not state: one supplied from model knowledge, yours or a
+critic's, a default or version above all. Fetch its primary source raw (step 1's URL method) and record
+`fact → URL → kept | removed` in `<work>/verification.md`. Remove a fact the page does not confirm; a rule resting
+on it is **cut: unverifiable**.
+**Done when** every draft has a critic verdict, every revise is applied, and every fact not from the source has a
+`verification.md` row.
 
 ## 6. Present and approve
 
