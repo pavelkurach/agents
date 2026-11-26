@@ -33,14 +33,19 @@ From this folder:
 
 - `/revy-plan` — plan a non-trivial change evidence-first, before implementation.
 
-The CLI, driving `plan.json` (located by `--plan`, or by `--target` and `--slug`):
+The CLI, driving `plan.json` (located by `--plan`, or by `--target` with or without `--slug`, or else the current
+plan `init` recorded for the repository you run it in):
 
 ```
-revy-plan init      # create plan.json for a target repo from a capability report
+revy-plan init      # create plan.json for a target repo (plus --repo ALIAS=PATH for others) from a capability report
 revy-plan status    # print the ready work frontier for the plan's current state
+revy-plan check     # dry-run a work result: report every problem, write nothing
 revy-plan apply     # apply a checked work result, advancing the plan atomically
-revy-plan render    # render the plan to Markdown and standalone HTML
-revy-plan serve     # serve the rendered plan at one stable loopback URL
+revy-plan reopen    # send the plan back to exploration or drafting, keeping approvals and the prior design (--recapture: moved checkout)
+revy-plan revise    # revise the candidate with an id-addressed patch; review resumes at the wave after the last recorded one
+revy-plan transcript add FILE  # store a transcript by digest; prints the {path, digest} to cite
+revy-plan render [--brief]  # render the plan to Markdown and standalone HTML (--brief: no appendix)
+revy-plan serve [--brief]   # serve the rendered plan at one stable loopback URL
 revy-plan gate      # succeed only at the final state
 revy-plan schema    # print the generated JSON Schema, a section, or a packet's result schema
 ```

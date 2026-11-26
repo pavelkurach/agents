@@ -71,24 +71,87 @@ pub struct CapabilityReport {
     pub proposals: Vec<ToolProposal>,
 }
 
+impl CapabilityReport {
+    /// Whether the report leaves the user nothing to decide: it proposes no
+    /// addition, and code intelligence (a capability proving `semantic`
+    /// evidence) is already available.
+    pub fn needs_no_approval(&self) -> bool {
+        self.proposals.is_empty()
+            && self.capabilities.iter().any(|capability| {
+                capability
+                    .proves
+                    .iter()
+                    .any(|class| *class == EvidenceClass::Semantic)
+            })
+    }
+}
+
+/// A capability report as an author supplies it.
+///
+/// Accepted by `init`, a `capability_report` packet, and an exploration's
+/// `propose_capability`. The repository identity may be omitted, because the
+/// CLI stamps the plan's own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityReportInput {
+    /// Optional; replaced by the plan's repository identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<RepositoryIdentity>,
+    pub capabilities: Vec<AvailableCapability>,
+    pub proposals: Vec<ToolProposal>,
+}
+
+impl CapabilityReportInput {
+    /// The report bound to the captured repository identity, which replaces any
+    /// identity the author supplied.
+    #[must_use]
+    pub fn stamped(self, repository: RepositoryIdentity) -> CapabilityReport {
+        CapabilityReport {
+            repository,
+            capabilities: self.capabilities,
+            proposals: self.proposals,
+        }
+    }
+}
+
 /// A human's decision over a [`CapabilityReport`], bound to that report's digest.
+///
+/// The digest may be omitted: the decision then binds to the report of the
+/// packet it answers, which the work key already pins to the current report.
+/// A digest given is checked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "decision", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CapabilityDecision {
     ProceedCurrent {
-        #[schemars(description = "The capability report's SHA-256 digest (64 lowercase hex).")]
-        report: Sha256Digest,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(description = DIGEST_DESCRIPTION)]
+        report: Option<Sha256Digest>,
     },
     ApproveAdditions {
-        #[schemars(description = "The capability report's SHA-256 digest (64 lowercase hex).")]
-        report: Sha256Digest,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(description = DIGEST_DESCRIPTION)]
+        report: Option<Sha256Digest>,
         proposals: OneOrMore<ProposalId>,
     },
     RequestRevision {
-        #[schemars(description = "The capability report's SHA-256 digest (64 lowercase hex).")]
-        report: Sha256Digest,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(description = DIGEST_DESCRIPTION)]
+        report: Option<Sha256Digest>,
         instruction: NonEmptyText,
     },
+}
+
+const DIGEST_DESCRIPTION: &str = "Optional: the capability report's SHA-256 digest (64 lowercase hex). Omitted, the decision binds to the report of the packet it answers; given, it must match.";
+
+impl CapabilityDecision {
+    /// The digest the decision declares, if any.
+    pub const fn declared_report(&self) -> Option<&Sha256Digest> {
+        match self {
+            Self::ProceedCurrent { report }
+            | Self::ApproveAdditions { report, .. }
+            | Self::RequestRevision { report, .. } => report.as_ref(),
+        }
+    }
 }
 
 #[cfg(test)]

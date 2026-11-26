@@ -43,7 +43,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::primitives::{NonEmptyText, OneOrMore, RepoRelPath, Slug};
+use crate::primitives::{NonEmptyText, OneOrMore, RepoPath, Slug};
 
 // --- Shared: `Crossing` (§3) ----------------------------------------------------
 
@@ -638,13 +638,13 @@ pub enum TimelineStepKind {
 /// A file/config hierarchy row.
 ///
 /// **Deliberate deviation from old Python**: every entry names a concrete
-/// file — [`RepoRelPath`] rejects a trailing `/`, so a directory-only row
+/// file — [`RepoPath`] rejects a trailing `/`, so a directory-only row
 /// (old `render.py:757`) is unrepresentable. Reusing the canonical repo-path
 /// primitive outweighs keeping that minor display nuance; see §1 item 10.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TreeEntry {
-    pub path: RepoRelPath,
+    pub path: RepoPath,
     pub change: Option<TreeChangeKind>,
     pub note: Option<NonEmptyText>,
 }

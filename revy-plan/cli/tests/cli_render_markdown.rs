@@ -10,8 +10,9 @@ use assert_cmd::Command;
 use tempfile::TempDir;
 
 const FINAL_PLAN: &str = include_str!("fixtures/final-plan.json");
+const FINAL_ACCEPTED_PLAN: &str = include_str!("fixtures/final-accepted-plan.json");
 
-fn render(body: &str) -> (TempDir, String) {
+fn render_with(body: &str, extra: &[&str]) -> (TempDir, String) {
     let dir = tempfile::tempdir().expect("tempdir");
     let plan = dir.path().join("plan.json");
     std::fs::write(&plan, body).expect("write plan");
@@ -21,10 +22,15 @@ fn render(body: &str) -> (TempDir, String) {
         .arg(dir.path())
         .args(["--plan"])
         .arg(&plan)
+        .args(extra)
         .assert()
         .success();
     let markdown = std::fs::read_to_string(dir.path().join("plan.md")).expect("plan.md written");
     (dir, markdown)
+}
+
+fn render(body: &str) -> (TempDir, String) {
+    render_with(body, &[])
 }
 
 #[test]
@@ -45,15 +51,44 @@ fn render_writes_a_markdown_document_with_the_heading() {
 }
 
 #[test]
-fn render_markdown_carries_the_derived_figures() {
+fn render_markdown_carries_the_derived_figures_under_one_trailing_appendix_heading() {
     let (_dir, markdown) = render(FINAL_PLAN);
-    for heading in ["## Evidence map", "## Changed symbols", "## Delivery"] {
-        assert!(markdown.contains(heading), "missing `{heading}`");
-    }
-    // The review timeline is rendered as a folded disclosure, not an H2.
+
+    let (authored, appendix) = markdown
+        .split_once("\n## Appendix\n")
+        .expect("one Appendix heading");
+
+    assert!(authored.contains("## Delivery"), "{markdown}");
     assert!(
-        markdown.contains("<details><summary>Review timeline"),
-        "missing folded review timeline"
+        !appendix.contains("\n## "),
+        "no H2 follows the appendix: {markdown}"
+    );
+    assert!(appendix.contains("### Evidence map"), "{markdown}");
+    assert!(appendix.contains("### Impact areas"), "{markdown}");
+    assert!(appendix.contains("### Changed symbols"), "{markdown}");
+    assert!(
+        appendix.contains("### Review timeline — 1 wave"),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn render_brief_omits_the_appendix_from_the_markdown() {
+    let (_dir, markdown) = render_with(FINAL_PLAN, &["--brief"]);
+
+    assert!(markdown.contains("## Delivery"), "{markdown}");
+    assert!(!markdown.contains("Appendix"), "{markdown}");
+    assert!(!markdown.contains("Evidence map"), "{markdown}");
+    assert!(!markdown.contains("Review timeline"), "{markdown}");
+}
+
+#[test]
+fn render_brief_keeps_the_accepted_banner_in_the_markdown() {
+    let (_dir, markdown) = render_with(FINAL_ACCEPTED_PLAN, &["--brief"]);
+
+    assert!(
+        markdown.contains("> **ACCEPTED WITH 1 UNRESOLVED FINDINGS (1 blocking, 0 major)**"),
+        "{markdown}"
     );
 }
 

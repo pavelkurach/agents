@@ -22,6 +22,20 @@ pub fn plan_home() -> Result<PathBuf, PathError> {
         .ok_or(PathError::NoHome)
 }
 
+/// The file naming the most recently initialized plan of any repository,
+/// which plan-locating commands fall back to when run outside a git
+/// repository.
+pub fn current_plan_file() -> Result<PathBuf, PathError> {
+    Ok(plan_home()?.join("current"))
+}
+
+/// The file naming the most recently initialized plan for one repository.
+///
+/// Plan-locating commands run inside that repository fall back to it. Kept beside, not under, the global `current` file so both can exist.
+pub fn repo_current_plan_file(repo_name: &RepoKey) -> Result<PathBuf, PathError> {
+    Ok(plan_home()?.join("current.d").join(repo_name.as_str()))
+}
+
 pub fn plan_dir(repo_name: &RepoKey, slug: &Slug) -> Result<PathBuf, PathError> {
     Ok(plan_home()?
         .join("plans")
@@ -40,6 +54,12 @@ pub fn plan_path(repo_name: &RepoKey, slug: &Slug) -> Result<PathBuf, PathError>
 /// directory, never the immutable target.
 pub fn transcripts_dir(repo_name: &RepoKey, slug: &Slug) -> Result<PathBuf, PathError> {
     Ok(plan_dir(repo_name, slug)?.join("transcripts"))
+}
+
+/// The shared, content-addressed transcript store: `transcripts/<sha256>` under
+/// the plan home, consulted when a plan's own `transcripts/` lacks a file.
+pub fn shared_transcripts_dir() -> Result<PathBuf, PathError> {
+    Ok(plan_home()?.join("transcripts"))
 }
 
 fn invalid_path_error() -> std::io::Error {

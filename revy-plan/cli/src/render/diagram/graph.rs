@@ -517,7 +517,7 @@ pub(super) fn tree_markup(entries: &OneOrMore<TreeEntry>) -> Markup {
     let base_depth = entries
         .as_slice()
         .iter()
-        .map(|entry| entry.path.as_str().matches('/').count())
+        .map(|entry| entry.path.path().as_str().matches('/').count())
         .min()
         .unwrap_or(0);
     markup! {
@@ -530,19 +530,17 @@ pub(super) fn tree_markup(entries: &OneOrMore<TreeEntry>) -> Markup {
 }
 
 fn tree_row(entry: &TreeEntry, base_depth: usize) -> Markup {
-    let depth = entry
-        .path
-        .as_str()
+    let path = entry.path.path().as_str();
+    let depth = path
         .matches('/')
         .count()
         .saturating_sub(base_depth)
         .min(TREE_MAX_DEPTH);
+    let leaf = path.rsplit('/').next().unwrap_or(path);
     let name = entry
         .path
-        .as_str()
-        .rsplit('/')
-        .next()
-        .unwrap_or(entry.path.as_str());
+        .repo()
+        .map_or_else(|| leaf.to_owned(), |alias| format!("{alias}:{leaf}"));
     let kind = tree_kind_token(entry.change);
     let name_class = format!("tre-n tre-{kind}");
     let style = format!("--d:{depth}");

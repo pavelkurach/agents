@@ -46,14 +46,14 @@ fn canonical(path: &Path, plan: &ParsedPlan) -> Result<String, ArtifactError> {
 
 fn write_tempfile(
     parent: &Path,
-    rendered: &str,
+    rendered: &[u8],
     display_path: &Path,
 ) -> Result<tempfile::NamedTempFile, ArtifactError> {
     let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|source| ArtifactError::Io {
         path: parent.display().to_string(),
         source,
     })?;
-    temp.write_all(rendered.as_bytes())
+    temp.write_all(rendered)
         .and_then(|()| temp.as_file().sync_all())
         .map_err(|source| ArtifactError::Io {
             path: display_path.display().to_string(),
@@ -62,7 +62,7 @@ fn write_tempfile(
     Ok(temp)
 }
 
-fn persist_replace(path: &Path, rendered: &str) -> Result<(), ArtifactError> {
+fn persist_replace(path: &Path, rendered: &[u8]) -> Result<(), ArtifactError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent).map_err(|source| ArtifactError::Io {
         path: parent.display().to_string(),
@@ -76,7 +76,7 @@ fn persist_replace(path: &Path, rendered: &str) -> Result<(), ArtifactError> {
     Ok(())
 }
 
-fn persist_new(path: &Path, rendered: &str) -> Result<(), ArtifactError> {
+fn persist_new(path: &Path, rendered: &[u8]) -> Result<(), ArtifactError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent).map_err(|source| ArtifactError::Io {
         path: parent.display().to_string(),
@@ -113,18 +113,23 @@ pub fn load(path: &Path) -> Result<ParsedPlan, ArtifactError> {
 /// Write a new plan artifact, failing if one already exists at the path.
 pub fn create_new(path: &Path, plan: &ParsedPlan) -> Result<(), ArtifactError> {
     let rendered = canonical(path, plan)?;
-    persist_new(path, &rendered)
+    persist_new(path, rendered.as_bytes())
 }
 
 /// Atomically replace the plan artifact with the canonical serialization of `plan`.
 pub fn save_atomic(path: &Path, plan: &ParsedPlan) -> Result<(), ArtifactError> {
     let rendered = canonical(path, plan)?;
-    persist_replace(path, &rendered)
+    persist_replace(path, rendered.as_bytes())
 }
 
 /// Atomically replace a rendered text artifact (Markdown/HTML) at the path.
 pub fn save_text_atomic(path: &Path, rendered: &str) -> Result<(), ArtifactError> {
-    persist_replace(path, rendered)
+    persist_replace(path, rendered.as_bytes())
+}
+
+/// Atomically replace a file with raw bytes (a stored transcript).
+pub fn save_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), ArtifactError> {
+    persist_replace(path, bytes)
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::ids::{AcId, ClaimId, MrId, RequirementId};
-use crate::primitives::{Argument, NonEmptyText, OneOrMore, ProgramName, RepoRelPath};
+use crate::primitives::{Argument, NonEmptyText, OneOrMore, ProgramName, RepoPath};
 
 /// A requirement the plan must satisfy, grounded in supporting claims.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -25,7 +25,7 @@ pub struct Requirement {
 pub struct VerifyCommand {
     pub program: ProgramName,
     pub args: Vec<Argument>,
-    pub cwd: RepoRelPath,
+    pub cwd: RepoPath,
     pub expected_status: i32,
 }
 
@@ -57,7 +57,7 @@ pub struct AcceptanceCriterion {
 pub struct Mr {
     pub id: MrId,
     pub title: NonEmptyText,
-    pub files: OneOrMore<RepoRelPath>,
+    pub files: OneOrMore<RepoPath>,
     pub needs: Vec<MrId>,
     pub satisfies: Vec<AcId>,
     pub standalone_behavior: NonEmptyText,
@@ -276,7 +276,7 @@ mod tests {
         Mr {
             id: MrId::parse(id).expect("valid id"),
             title: text("a merge request"),
-            files: OneOrMore::parse(vec![RepoRelPath::parse("src/lib.rs").expect("valid path")])
+            files: OneOrMore::parse(vec![RepoPath::parse("src/lib.rs").expect("valid path")])
                 .expect("one file"),
             needs: needs
                 .iter()

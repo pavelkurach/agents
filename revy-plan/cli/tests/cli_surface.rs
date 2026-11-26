@@ -20,7 +20,7 @@ fn top_help() -> String {
 fn help_lists_every_public_command() {
     let stdout = top_help();
     for command in [
-        "init", "schema", "format", "status", "apply", "gate", "render", "serve",
+        "init", "schema", "format", "status", "apply", "check", "gate", "render", "serve",
     ] {
         assert!(
             stdout.contains(command),
@@ -50,4 +50,15 @@ fn the_version_flag_prints_the_package_version() {
         .assert()
         .success()
         .stdout(predicates::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn revise_help_states_the_wave_a_revision_enters() {
+    let assert = revy_plan().args(["revise", "--help"]).assert().success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 help");
+
+    assert!(
+        stdout.contains("the wave after the last recorded review round"),
+        "{stdout}"
+    );
 }

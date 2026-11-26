@@ -4,6 +4,11 @@
 //! packet's subject document instead of a full result (design §10). Only the three
 //! ops are supported — `move`/`copy`/`test` are out of scope — and navigation uses
 //! `serde_json`'s own JSON-pointer semantics, with array `-` appending to the end.
+//!
+//! A segment `@<key>` addressing an array selects the one element whose identity
+//! field — the first present of `id`, `subject`, `symbol`, `lane` — equals
+//! `<key>`, so a patch can name `/candidate/content/risks/@risk-cache/statement`
+//! instead of a positional index that shifts when the array changes.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -63,6 +68,8 @@ pub fn apply_all(document: &mut Value, operations: &[PatchOperation]) -> Result<
 }
 
 fn apply_one(document: &mut Value, operation: &PatchOperation) -> Result<(), String> {
+    let path = resolve_selectors(document, &operation.path)?;
+    let path = path.as_str();
     match operation.op {
         PatchOp::Replace => {
             let value = operation
@@ -70,7 +77,7 @@ fn apply_one(document: &mut Value, operation: &PatchOperation) -> Result<(), Str
                 .clone()
                 .ok_or_else(|| "replace requires a value".to_owned())?;
             let target = document
-                .pointer_mut(&operation.path)
+                .pointer_mut(path)
                 .ok_or_else(|| "path does not exist".to_owned())?;
             *target = value;
             Ok(())
@@ -80,10 +87,75 @@ fn apply_one(document: &mut Value, operation: &PatchOperation) -> Result<(), Str
                 .value
                 .clone()
                 .ok_or_else(|| "add requires a value".to_owned())?;
-            add(document, &operation.path, value)
+            add(document, path, value)
         }
-        PatchOp::Remove => remove(document, &operation.path),
+        PatchOp::Remove => remove(document, path),
     }
+}
+
+/// The fields that identify an array element, in the order an `@<key>` selector
+/// consults them: the first one an element carries is its identity.
+const IDENTITY_FIELDS: [&str; 4] = ["id", "subject", "symbol", "lane"];
+
+/// Rewrite every `@<key>` segment that addresses an array into the index of the
+/// one element whose identity equals `<key>`. A segment addressing an object (or
+/// nothing yet) is kept verbatim.
+fn resolve_selectors(document: &Value, path: &str) -> Result<String, String> {
+    if path.is_empty() {
+        return Ok(String::new());
+    }
+    let rest = path
+        .strip_prefix('/')
+        .ok_or_else(|| "path must be a JSON pointer starting with `/`".to_owned())?;
+    let mut resolved = String::new();
+    for token in rest.split('/') {
+        let selector = unescape(token);
+        let array = document
+            .pointer(&resolved)
+            .and_then(Value::as_array)
+            .filter(|_| selector.starts_with('@'));
+        resolved.push('/');
+        match (array, selector.strip_prefix('@')) {
+            (Some(array), Some(key)) => {
+                let index = select_element(array, key, &resolved)?;
+                resolved.push_str(&index.to_string());
+            }
+            _ => resolved.push_str(token),
+        }
+    }
+    Ok(resolved)
+}
+
+/// The index of the single element of `array` whose identity equals `key`.
+fn select_element(array: &[Value], key: &str, at: &str) -> Result<usize, String> {
+    let matches: Vec<usize> = array
+        .iter()
+        .enumerate()
+        .filter(|(_, element)| element_identity(element) == Some(key))
+        .map(|(index, _)| index)
+        .collect();
+    let parent = at.strip_suffix('/').unwrap_or(at);
+    let parent = if parent.is_empty() { "/" } else { parent };
+    match matches.as_slice() {
+        [index] => Ok(*index),
+        [] => Err(format!(
+            "selector `@{key}` matched no element of the array at {parent} (an element's identity is the first of {} it carries)",
+            IDENTITY_FIELDS.join(", ")
+        )),
+        several => Err(format!(
+            "selector `@{key}` matched {} elements of the array at {parent} (indices {:?}); use an index",
+            several.len(),
+            several
+        )),
+    }
+}
+
+fn element_identity(element: &Value) -> Option<&str> {
+    let object = element.as_object()?;
+    IDENTITY_FIELDS
+        .iter()
+        .find_map(|field| object.get(*field))
+        .and_then(Value::as_str)
 }
 
 /// Split a JSON pointer into its parent pointer and its unescaped last token.

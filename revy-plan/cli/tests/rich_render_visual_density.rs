@@ -91,16 +91,20 @@ fn the_dense_plan_renders_every_rich_element() {
         ("removed symbol colour", "tre-removed"),
         ("call graph", "As-is call graph"),
         ("review timeline", "Review timeline"),
-        ("coverage strip", "coverage"),
+        ("covered lane on its impact row", "pill lane-covered"),
+        ("set-aside lanes", "set-aside"),
         ("impact table", "Impact areas"),
         ("decisions", "Decisions"),
         ("ruled out", "Considered and rejected"),
         ("delivery", "Delivery"),
-        ("mr dag", "mr-dag"),
         ("authored behavior figure", "dg-figure behavior-figure"),
         ("lead-with-statement list", "lead-list"),
         ("demoted slug caption", "item-cap"),
-        ("folded timeline", "timeline-fold"),
+        ("timeline digest", "tl-digest"),
+        (
+            "collapsed appendix",
+            "<details class=\"section secondary appendix\">",
+        ),
     ];
     for (name, needle) in needed {
         assert!(
@@ -116,17 +120,20 @@ fn the_dense_plan_renders_every_rich_element() {
 }
 
 #[test]
-fn an_authored_dag_figure_suppresses_the_derived_mr_dag() {
-    // Baseline: with no authored dag, the derived MR-DAG renders exactly once.
-    let baseline = render_document(&dense_final());
-    assert_eq!(
-        baseline.html.matches("mr-dag").count(),
-        1,
-        "the derived MR-DAG renders once when no dag is authored"
-    );
+fn each_merge_request_renders_once_with_no_derived_dependency_graph() {
+    let rendered = render_document(&dense_final());
 
-    // Author a `dag` figure: the renderer must suppress the derived MR-DAG so the
-    // page carries one dependency graph, never two (design §9 de-dup).
+    let body = rendered
+        .html
+        .split_once("</style>")
+        .expect("inlined style")
+        .1;
+
+    assert_eq!(body.matches("Add the bounded queue").count(), 1, "{body}");
+}
+
+#[test]
+fn an_authored_dag_figure_still_renders_beside_the_merge_request_listing() {
     let mut candidate = dense_candidate();
     candidate["content"]["sections"][0]["blocks"]
         .as_array_mut()
@@ -142,24 +149,18 @@ fn an_authored_dag_figure_suppresses_the_derived_mr_dag() {
                 }]
             }
         }));
-    let round = json!({
-        "wave": 1,
-        "reviews": [{ "kind": "integrated", "findings": [], "lanes": [], "consumers": [] }],
-        "triage": [], "rulings": []
-    });
     let doc = document(
         "final",
-        json!({ "candidate": candidate, "history": [round], "accepted": [], "comments": [] }),
+        json!({ "candidate": candidate, "history": [], "accepted": [], "comments": [] }),
     );
+
     let rendered = render_document(&doc);
-    assert_eq!(
-        rendered.html.matches("mr-dag").count(),
-        0,
-        "an authored dag figure suppresses the derived MR-DAG (no double MR-DAG)"
-    );
+
+    assert!(rendered.html.contains("d dag"), "{}", rendered.html);
     assert!(
-        rendered.html.contains("d dag"),
-        "the authored dag figure still renders"
+        rendered.html.contains("MR: Add the bounded queue"),
+        "{}",
+        rendered.html
     );
 }
 
@@ -391,35 +392,29 @@ fn a_decision_leads_with_the_question_and_reads_rejections_as_plain_text() {
 }
 
 #[test]
-fn the_review_timeline_folds_into_a_one_line_digest() {
+fn the_review_timeline_sits_in_the_appendix_with_a_one_line_digest() {
     let rendered = render_document(&dense_final());
-    // Item 1: the retrospective timeline collapses into <details>; the digest
-    // beside the heading carries the tally.
+
+    let appendix = rendered
+        .html
+        .split_once("<details class=\"section secondary appendix\">")
+        .expect("the appendix disclosure")
+        .1;
+
     assert!(
-        rendered.html.contains("timeline-fold"),
-        "folded into <details>"
+        appendix.contains("<p class=\"tl-digest\">1 wave · 1 advisory</p>"),
+        "{appendix}"
     );
-    assert!(
-        rendered.html.contains("tl-digest"),
-        "digest beside the heading"
-    );
-    assert!(
-        rendered.html.contains("1 advisory"),
-        "digest tallies the advisory finding: {}",
-        rendered.html
-    );
-    // Markdown mirror uses the same <details>/summary and keeps the findings.
     assert!(
         rendered
             .markdown
-            .contains("<details><summary>Review timeline —"),
-        "markdown folded timeline: {}",
+            .contains("### Review timeline — 1 wave · 1 advisory"),
+        "{}",
         rendered.markdown
     );
-    assert!(rendered.markdown.contains("</details>"));
     assert!(
         rendered.markdown.contains("Consider a metric."),
-        "the finding survives the fold"
+        "the finding survives in the appendix"
     );
 }
 

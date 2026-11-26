@@ -154,7 +154,7 @@ fn an_approved_tool_that_is_never_used_fails_exploration() {
     )
     .expect_err("an unused approved tool fails exploration");
     assert!(
-        matches!(error, CheckError::ApprovedToolUnused { .. }),
+        matches!(error.first().error(), CheckError::ApprovedToolUnused { .. }),
         "{error:?}"
     );
 }
@@ -218,7 +218,10 @@ fn an_exploration_naming_an_absent_source_anchor_fails_the_runtime_check() {
     let error = check_step(&plan, WorkKind::Exploration, &result, repo.path())
         .expect_err("an absent source anchor is rejected");
     assert!(
-        matches!(error, CheckError::MissingSourceAnchor { .. }),
+        matches!(
+            error.first().error(),
+            CheckError::MissingSourceAnchor { .. }
+        ),
         "{error:?}"
     );
 }
@@ -244,7 +247,10 @@ fn an_exploration_scoping_an_absent_directory_fails_the_runtime_check() {
     let error = check_step(&plan, WorkKind::Exploration, &result, repo.path())
         .expect_err("a nonexistent scope is still rejected");
     assert!(
-        matches!(error, CheckError::MissingSourceAnchor { .. }),
+        matches!(
+            error.first().error(),
+            CheckError::MissingSourceAnchor { .. }
+        ),
         "{error:?}"
     );
 }
@@ -265,7 +271,10 @@ fn an_exploration_naming_a_line_past_the_end_of_the_file_fails_the_runtime_check
     let error = check_step(&plan, WorkKind::Exploration, &result, repo.path())
         .expect_err("a line past the end of the file is rejected");
     assert!(
-        matches!(error, CheckError::AnchorLineOutOfRange { .. }),
+        matches!(
+            error.first().error(),
+            CheckError::AnchorLineOutOfRange { .. }
+        ),
         "{error:?}"
     );
 }
@@ -286,7 +295,7 @@ fn a_runtime_artifact_whose_digest_does_not_match_fails_the_runtime_check() {
         .expect_err("a mismatched artifact digest is rejected");
     assert!(
         matches!(
-            error,
+            error.first().error(),
             CheckError::ExplorationTranscriptDigestMismatch { .. }
         ),
         "{error:?}"

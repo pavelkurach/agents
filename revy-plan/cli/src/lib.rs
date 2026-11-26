@@ -5,6 +5,7 @@ pub mod diagnostics;
 pub mod document;
 pub mod evidence;
 pub mod ids;
+pub mod issues;
 pub mod model;
 pub mod packet;
 pub mod patch;

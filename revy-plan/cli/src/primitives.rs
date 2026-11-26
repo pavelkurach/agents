@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::path::{Component, Path};
+use std::path::Path;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
@@ -30,11 +30,75 @@ pub enum PrimitiveError {
     MalformedSha256,
     #[error("program name must be a single token without whitespace")]
     MalformedProgramName,
+    #[error("repository alias must match [a-z0-9]+(-[a-z0-9]+)*")]
+    MalformedRepoAlias,
 }
 
+/// The inline JSON Schema of a parsed string: `{"type":"string"}` plus the
+/// `pattern` and `description` its parser enforces, so a schema-driven author
+/// sees the rule before the CLI rejects the value.
+macro_rules! string_schema {
+    ($name:ident, pattern: $pattern:expr, description: $description:expr) => {
+        impl JsonSchema for $name {
+            fn inline_schema() -> bool {
+                true
+            }
+
+            fn schema_name() -> Cow<'static, str> {
+                Cow::Borrowed(stringify!($name))
+            }
+
+            fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+                let mut schema = serde_json::Map::new();
+                schema.insert("type".to_owned(), serde_json::json!("string"));
+                let pattern: Option<&str> = $pattern;
+                if let Some(pattern) = pattern {
+                    schema.insert("pattern".to_owned(), serde_json::json!(pattern));
+                }
+                let description: Option<&str> = $description;
+                if let Some(description) = description {
+                    schema.insert("description".to_owned(), serde_json::json!(description));
+                }
+                Schema::from(schema)
+            }
+        }
+    };
+}
+
+/// The grammar [`Slug::parse`] enforces, published as the schema `pattern`.
+pub const SLUG_PATTERN: &str = "^[a-z0-9]+(-[a-z0-9]+)*$";
+
+/// The unanchored [`RepoRelPath`] grammar, shared by every path pattern.
+macro_rules! rel_path_body {
+    () => {
+        r"([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+)(/([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+))*"
+    };
+}
+
+/// The optional `alias:` prefix of a qualified repository path.
+macro_rules! alias_prefix {
+    () => {
+        r"([a-z0-9]+(-[a-z0-9]+)*:)?"
+    };
+}
+
+/// The grammar [`RepoRelPath::parse`] enforces: `/`-separated segments, none
+/// empty, `.` or `..`.
+pub const REPO_REL_PATH_PATTERN: &str = concat!("^", rel_path_body!(), "$");
+
+const REPO_REL_PATH_DESCRIPTION: &str = "A canonical repository-relative path: `/`-separated segments with no leading `/`, no `.` or `..` segment, and no trailing or doubled `/`.";
+
 macro_rules! parsed_string {
+    ($name:ident, pattern: $pattern:expr, description: $description:expr, $parse:item) => {
+        parsed_string!(@define $name, $parse);
+        string_schema!($name, pattern: Some($pattern), description: $description);
+    };
     ($name:ident, $parse:item) => {
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, JsonSchema)]
+        parsed_string!(@define $name, $parse);
+        string_schema!($name, pattern: None, description: None);
+    };
+    (@define $name:ident, $parse:item) => {
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
         #[serde(transparent)]
         pub struct $name(String);
 
@@ -68,22 +132,23 @@ macro_rules! parsed_string {
 
 parsed_string!(
     RepoRelPath,
+    pattern: REPO_REL_PATH_PATTERN,
+    description: Some(REPO_REL_PATH_DESCRIPTION),
+    /// Segment-wise, not via `Path::components`: components normalizes an
+    /// interior `.` away, which would admit `a/./b` against the published
+    /// pattern.
     pub fn parse(raw: &str) -> Result<Self, PrimitiveError> {
         if raw.is_empty() {
             return Err(PrimitiveError::Empty);
         }
-        let path = Path::new(raw);
-        for component in path.components() {
-            match component {
-                Component::ParentDir => return Err(PrimitiveError::PathEscape),
-                Component::RootDir | Component::Prefix(_) => {
-                    return Err(PrimitiveError::AbsolutePath);
-                }
-                Component::CurDir => return Err(PrimitiveError::NonCanonicalPath),
-                Component::Normal(_) => {}
-            }
+        if raw.starts_with('/') {
+            return Err(PrimitiveError::AbsolutePath);
         }
-        if raw.ends_with('/') || raw.contains("//") {
+        let segments: Vec<&str> = raw.split('/').collect();
+        if segments.contains(&"..") {
+            return Err(PrimitiveError::PathEscape);
+        }
+        if segments.iter().any(|segment| segment.is_empty() || *segment == ".") {
             return Err(PrimitiveError::NonCanonicalPath);
         }
         Ok(Self(raw.to_owned()))
@@ -146,6 +211,8 @@ impl NonEmptyText {
 
 parsed_string!(
     Slug,
+    pattern: SLUG_PATTERN,
+    description: Some("A kebab-case identifier: lowercase ASCII letters and digits, single `-` between runs."),
     pub fn parse(raw: &str) -> Result<Self, PrimitiveError> {
         if raw.is_empty() {
             return Err(PrimitiveError::Empty);
@@ -280,6 +347,22 @@ impl<T> OneOrMore<T> {
         OneOrMore(self.0.iter().map(f).collect())
     }
 
+    /// The first element; total because the collection is non-empty.
+    pub fn first(&self) -> &T {
+        // `parse` and every constructor guarantee at least one element.
+        #[allow(clippy::indexing_slicing)]
+        &self.0[0]
+    }
+
+    /// Consume each element into a new [`OneOrMore`], preserving non-emptiness.
+    pub fn map_into<U>(self, f: impl FnMut(T) -> U) -> OneOrMore<U> {
+        OneOrMore(self.0.into_iter().map(f).collect())
+    }
+
+    pub fn into_vec(self) -> Vec<T> {
+        self.0
+    }
+
     pub(crate) fn from_first(first: T, mut rest: Vec<T>) -> Self {
         rest.insert(0, first);
         Self(rest)
@@ -365,10 +448,197 @@ impl<'de> Deserialize<'de> for Argument {
     }
 }
 
+parsed_string!(
+    RepoAlias,
+    pattern: SLUG_PATTERN,
+    description: Some("A repository alias the plan declares (`init --repo ALIAS=PATH`): kebab-case, lowercase ASCII letters and digits."),
+    pub fn parse(raw: &str) -> Result<Self, PrimitiveError> {
+        Slug::parse(raw)
+            .map(|slug| Self(slug.0))
+            .map_err(|_| PrimitiveError::MalformedRepoAlias)
+    }
+);
+
+/// Used when a key's readable name folds away entirely.
+const REPO_ALIAS_FALLBACK: &str = "primary";
+
+impl RepoAlias {
+    /// The default alias of a checkout: its key's readable name (the digest
+    /// suffix [`RepoKey::for_root`] appends dropped), folded to the alias
+    /// grammar. Total, so plans stored before aliases existed still have one.
+    pub fn for_key(key: &RepoKey) -> Self {
+        let raw = key.as_str();
+        let readable = raw
+            .rsplit_once('-')
+            .filter(|(_, suffix)| {
+                suffix.len() == REPO_KEY_DIGEST_CHARS
+                    && suffix.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+            })
+            .map_or(raw, |(name, _)| name);
+        let folded: String = readable
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let alias = folded
+            .split('-')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        if alias.is_empty() {
+            Self(REPO_ALIAS_FALLBACK.to_owned())
+        } else {
+            Self(alias)
+        }
+    }
+}
+
+/// Split `alias:rest` when the text before the first `:` is alias-shaped;
+/// otherwise the whole input is an unprefixed (primary-repository) path, so a
+/// file name that merely contains a colon still parses.
+fn split_alias(raw: &str) -> (Option<RepoAlias>, &str) {
+    match raw.split_once(':') {
+        Some((prefix, rest)) => {
+            RepoAlias::parse(prefix).map_or((None, raw), |alias| (Some(alias), rest))
+        }
+        None => (None, raw),
+    }
+}
+
+/// The grammar [`RepoPath::parse`] enforces: an optional `alias:` prefix, then
+/// a [`RepoRelPath`].
+pub const REPO_PATH_PATTERN: &str = concat!("^", alias_prefix!(), rel_path_body!(), "$");
+
+const REPO_PATH_DESCRIPTION: &str = "A file in one of the plan's repositories: `path` for the primary repository, or `alias:path` for a repository the plan declares (see the exploration packet's `repositories`). `path` is canonical and repository-relative: `/`-separated segments with no leading `/`, no `.` or `..` segment, and no trailing or doubled `/`. The primary repository is always cited unprefixed. An evidence anchor's path must exist under the named repository's root when the result is applied.";
+
+/// A file cited in one of the plan's repositories.
+///
+/// Unprefixed for the primary repository, `alias:path` for a declared one.
+/// Parsed once at the boundary; whether the alias is declared is proven against
+/// the plan's [`crate::repository::Repositories`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RepoPath {
+    repo: Option<RepoAlias>,
+    path: RepoRelPath,
+}
+
+impl RepoPath {
+    pub fn parse(raw: &str) -> Result<Self, PrimitiveError> {
+        let (repo, rest) = split_alias(raw);
+        Ok(Self {
+            repo,
+            path: RepoRelPath::parse(rest)?,
+        })
+    }
+
+    /// The declared repository this path names; `None` is the primary.
+    pub const fn repo(&self) -> Option<&RepoAlias> {
+        self.repo.as_ref()
+    }
+
+    /// The path relative to that repository's root.
+    pub const fn path(&self) -> &RepoRelPath {
+        &self.path
+    }
+}
+
+impl std::fmt::Display for RepoPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.repo {
+            Some(alias) => write!(f, "{alias}:{}", self.path),
+            None => write!(f, "{}", self.path),
+        }
+    }
+}
+
+/// The grammar [`RepoScope::parse`] enforces: a [`RepoPath`], or `.` /
+/// `alias:.` for a whole repository.
+pub const REPO_SCOPE_PATTERN: &str = concat!("^", alias_prefix!(), r"(\.|", rel_path_body!(), ")$");
+
+const REPO_SCOPE_DESCRIPTION: &str = "Where a textual search ran: a file or directory as a repository path (`path` or `alias:path`), or `.` (the whole primary repository) / `alias:.` (the whole declared repository `alias`). It must exist under the named repository's root when the result is applied.";
+
+/// What a textual scope covers inside its repository.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ScopeExtent {
+    WholeRepository,
+    Path(RepoRelPath),
+}
+
+/// Where a textual search ran: a path, or a whole repository (`.` /
+/// `alias:.`). Only a scope may name a whole repository; an anchor cites a file.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RepoScope {
+    repo: Option<RepoAlias>,
+    extent: ScopeExtent,
+}
+
+impl RepoScope {
+    pub fn parse(raw: &str) -> Result<Self, PrimitiveError> {
+        let (repo, rest) = split_alias(raw);
+        let extent = if rest == "." {
+            ScopeExtent::WholeRepository
+        } else {
+            ScopeExtent::Path(RepoRelPath::parse(rest)?)
+        };
+        Ok(Self { repo, extent })
+    }
+
+    /// The declared repository this scope names; `None` is the primary.
+    pub const fn repo(&self) -> Option<&RepoAlias> {
+        self.repo.as_ref()
+    }
+
+    pub const fn extent(&self) -> &ScopeExtent {
+        &self.extent
+    }
+}
+
+impl std::fmt::Display for RepoScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(alias) = &self.repo {
+            write!(f, "{alias}:")?;
+        }
+        match &self.extent {
+            ScopeExtent::WholeRepository => f.write_str("."),
+            ScopeExtent::Path(path) => write!(f, "{path}"),
+        }
+    }
+}
+
+macro_rules! string_round_trip {
+    ($name:ident) => {
+        impl Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                s.collect_str(self)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+                let raw = String::deserialize(d)?;
+                Self::parse(&raw)
+                    .map_err(|error| serde::de::Error::custom(format!("{error}: {raw:?}")))
+            }
+        }
+    };
+}
+
+string_round_trip!(RepoPath);
+string_round_trip!(RepoScope);
+string_schema!(RepoPath, pattern: Some(REPO_PATH_PATTERN), description: Some(REPO_PATH_DESCRIPTION));
+string_schema!(RepoScope, pattern: Some(REPO_SCOPE_PATTERN), description: Some(REPO_SCOPE_DESCRIPTION));
+
+/// A source anchor checked at ingest: `path` must exist under the root of the
+/// repository it names, and `line` (1-based) must fall within that file.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Location {
-    pub path: RepoRelPath,
+    pub path: RepoPath,
     pub line: u32,
     pub column: u32,
 }
@@ -418,6 +688,58 @@ mod tests {
         assert_eq!(
             RepoRelPath::parse("./src/lib.rs"),
             Err(PrimitiveError::NonCanonicalPath)
+        );
+    }
+
+    #[test]
+    fn test_repo_rel_path_rejects_an_interior_current_directory_segment() {
+        assert_eq!(
+            RepoRelPath::parse("src/./lib.rs"),
+            Err(PrimitiveError::NonCanonicalPath)
+        );
+    }
+
+    #[test]
+    fn test_repo_rel_path_rejects_a_trailing_current_directory_segment() {
+        assert_eq!(
+            RepoRelPath::parse("src/."),
+            Err(PrimitiveError::NonCanonicalPath)
+        );
+    }
+
+    #[test]
+    fn test_repo_rel_path_accepts_a_dot_prefixed_segment() {
+        assert_eq!(
+            RepoRelPath::parse(".github/workflows/ci.yml")
+                .expect("dotfile directories are ordinary segments")
+                .as_str(),
+            ".github/workflows/ci.yml"
+        );
+    }
+
+    #[test]
+    fn test_repo_rel_path_rejects_a_doubled_separator() {
+        assert_eq!(
+            RepoRelPath::parse("src//lib.rs"),
+            Err(PrimitiveError::NonCanonicalPath)
+        );
+    }
+
+    #[test]
+    fn test_repo_rel_path_schema_publishes_the_parser_grammar() {
+        let schema = schemars::schema_for!(RepoRelPath);
+        assert_eq!(
+            schema.get("pattern"),
+            Some(&serde_json::json!(REPO_REL_PATH_PATTERN))
+        );
+    }
+
+    #[test]
+    fn test_slug_schema_publishes_the_kebab_pattern() {
+        let schema = schemars::schema_for!(Slug);
+        assert_eq!(
+            schema.get("pattern"),
+            Some(&serde_json::json!("^[a-z0-9]+(-[a-z0-9]+)*$"))
         );
     }
 
@@ -546,6 +868,107 @@ mod tests {
             r#"{"path":"src/lib.rs","line":6,"column":0,"snippet":"fn add"}"#,
         )
         .expect_err("unknown fields are rejected");
+    }
+
+    #[test]
+    fn test_repo_path_without_a_prefix_names_the_primary_repository() {
+        let path = RepoPath::parse("src/lib.rs").expect("valid path");
+        assert_eq!((path.repo(), path.path().as_str()), (None, "src/lib.rs"));
+    }
+
+    #[test]
+    fn test_repo_path_with_an_alias_prefix_names_that_repository() {
+        let path = RepoPath::parse("vortex:src/lib.rs").expect("valid path");
+        assert_eq!(
+            (path.repo().map(RepoAlias::as_str), path.path().as_str()),
+            (Some("vortex"), "src/lib.rs")
+        );
+    }
+
+    #[test]
+    fn test_repo_path_whose_prefix_is_not_alias_shaped_keeps_the_colon_in_the_path() {
+        let path = RepoPath::parse("Notes:2026.md").expect("a colon in a file name");
+        assert_eq!((path.repo(), path.path().as_str()), (None, "Notes:2026.md"));
+    }
+
+    #[test]
+    fn test_repo_path_rejects_an_escape_after_the_alias() {
+        assert_eq!(
+            RepoPath::parse("vortex:../secrets"),
+            Err(PrimitiveError::PathEscape)
+        );
+    }
+
+    #[test]
+    fn test_repo_path_rejects_a_whole_repository_dot() {
+        assert_eq!(
+            RepoPath::parse("vortex:."),
+            Err(PrimitiveError::NonCanonicalPath)
+        );
+    }
+
+    #[test]
+    fn test_repo_path_serializes_with_its_alias_prefix() {
+        let path: RepoPath = serde_json::from_str(r#""vortex:src/a.rs""#).expect("valid path");
+        assert_eq!(
+            serde_json::to_string(&path).expect("serializes"),
+            r#""vortex:src/a.rs""#
+        );
+    }
+
+    #[test]
+    fn test_repo_scope_dot_is_the_whole_primary_repository() {
+        let scope = RepoScope::parse(".").expect("whole repository");
+        assert_eq!(
+            (scope.repo(), scope.extent()),
+            (None, &ScopeExtent::WholeRepository)
+        );
+    }
+
+    #[test]
+    fn test_repo_scope_alias_dot_is_the_whole_declared_repository() {
+        let scope = RepoScope::parse("vortex:.").expect("whole repository");
+        assert_eq!(
+            (scope.repo().map(RepoAlias::as_str), scope.extent()),
+            (Some("vortex"), &ScopeExtent::WholeRepository)
+        );
+    }
+
+    #[test]
+    fn test_repo_scope_rejects_a_dot_prefixed_path() {
+        assert_eq!(
+            RepoScope::parse("./src"),
+            Err(PrimitiveError::NonCanonicalPath)
+        );
+    }
+
+    #[test]
+    fn test_repo_scope_schema_publishes_the_whole_repository_grammar() {
+        let schema = schemars::schema_for!(RepoScope);
+        assert_eq!(
+            schema.get("pattern"),
+            Some(&serde_json::json!(REPO_SCOPE_PATTERN))
+        );
+    }
+
+    #[test]
+    fn test_repo_alias_rejects_upper_case() {
+        assert_eq!(
+            RepoAlias::parse("Vortex"),
+            Err(PrimitiveError::MalformedRepoAlias)
+        );
+    }
+
+    #[test]
+    fn test_repo_alias_for_key_drops_the_digest_and_folds_to_kebab_case() {
+        let key = RepoKey::for_root(Path::new("/Users/dev/Agents_MD"));
+        assert_eq!(RepoAlias::for_key(&key).as_str(), "agents-md");
+    }
+
+    #[test]
+    fn test_repo_alias_for_key_falls_back_when_nothing_readable_remains() {
+        let key = RepoKey::parse("___").expect("valid key");
+        assert_eq!(RepoAlias::for_key(&key).as_str(), "primary");
     }
 
     #[test]

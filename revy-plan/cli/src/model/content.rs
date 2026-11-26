@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::{DecisionId, RiskId};
 use crate::model::diagram::Diagram;
-use crate::primitives::{NonEmptyText, OneOrMore, RepoRelPath};
+use crate::primitives::{NonEmptyText, OneOrMore, RepoPath};
 
 /// How a symbol the delta names changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -22,7 +22,7 @@ pub enum SymbolChange {
 #[serde(deny_unknown_fields)]
 pub struct ChangedSymbol {
     pub symbol: NonEmptyText,
-    pub path: RepoRelPath,
+    pub path: RepoPath,
     pub change: SymbolChange,
 }
 
@@ -123,6 +123,9 @@ pub struct Decision {
     pub owner: DecisionOwner,
     pub question: NonEmptyText,
     pub state: DecisionState,
+    /// The note the user gave with their answer to a user-owned decision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<NonEmptyText>,
 }
 
 /// A design decision proposed while authoring the brief, discriminated by owner.

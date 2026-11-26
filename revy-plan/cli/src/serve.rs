@@ -24,7 +24,7 @@ use crate::artifact::{self, ArtifactError};
 use crate::document::ParsedPlan;
 use crate::model::discussion::BlockAnchor;
 use crate::primitives::{NonEmptyText, Sha256Digest};
-use crate::render::{self, RenderContext};
+use crate::render::{self, Appendix, RenderContext};
 use crate::state::RunState;
 
 #[derive(Debug, Error)]
@@ -81,13 +81,22 @@ impl FileStamp {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Cache {
+    appendix: Appendix,
     stamp: Option<FileStamp>,
     html: Option<String>,
 }
 
 impl Cache {
+    const fn new(appendix: Appendix) -> Self {
+        Self {
+            appendix,
+            stamp: None,
+            html: None,
+        }
+    }
+
     fn response(&mut self, path: &Path) -> String {
         let stamp = match FileStamp::read(path) {
             Ok(stamp) => stamp,
@@ -100,7 +109,7 @@ impl Cache {
             return html.clone();
         }
 
-        match render_plan(path) {
+        match render_plan(path, self.appendix) {
             Ok(html) => {
                 self.stamp = Some(stamp);
                 self.html = Some(html.clone());
@@ -116,7 +125,7 @@ impl Cache {
 /// watermark); only a state with no candidate cannot be shown. The returned page
 /// carries the comment affordance, stamped with the digest of the exact bytes it
 /// was rendered from so a later comment can detect staleness.
-fn render_plan(path: &Path) -> Result<String, PageError> {
+fn render_plan(path: &Path, appendix: Appendix) -> Result<String, PageError> {
     let bytes = std::fs::read(path).map_err(|source| {
         PageError::Artifact(ArtifactError::Io {
             path: path.display().to_string(),
@@ -129,14 +138,8 @@ fn render_plan(path: &Path) -> Result<String, PageError> {
     })?;
     let candidate = plan.state().candidate().ok_or(PageError::NoCandidate)?;
     let label = state_label(plan.state());
-    let context = RenderContext {
-        state_label: &label,
-        is_final: matches!(plan.state(), RunState::Final { .. }),
-        history: state_history(plan.state()),
-        accepted: state_accepted(plan.state()),
-        comments: plan.state().comments(),
-    };
-    let html = render::render(candidate, &context).html;
+    let context = RenderContext::for_state(plan.state(), &label);
+    let html = render::render(candidate, &context, appendix).html;
     Ok(with_comment_affordance(&html, &page_version(&bytes)))
 }
 
@@ -151,23 +154,6 @@ fn state_label(state: &RunState) -> String {
         }
         RunState::Final { .. } => "final".to_owned(),
         _ => "draft".to_owned(),
-    }
-}
-
-fn state_history(state: &RunState) -> &[crate::state::ReviewRound] {
-    match state {
-        RunState::Reviewing { history, .. }
-        | RunState::Correcting { history, .. }
-        | RunState::AwaitingReviewDecision { history, .. }
-        | RunState::Final { history, .. } => history,
-        _ => &[],
-    }
-}
-
-fn state_accepted(state: &RunState) -> &[crate::model::review::Finding] {
-    match state {
-        RunState::Final { accepted, .. } => accepted,
-        _ => &[],
     }
 }
 
@@ -515,7 +501,7 @@ fn should_exit(watchdog: Watchdog, now: Instant) -> bool {
         .is_some_and(|beat| now.saturating_duration_since(beat) >= IDLE_TIMEOUT)
 }
 
-pub fn run(plan_path: &Path, port: u16) -> Result<(), ServeError> {
+pub fn run(plan_path: &Path, port: u16, appendix: Appendix) -> Result<(), ServeError> {
     let server = bind(port)?;
     let actual_port = server
         .server_addr()
@@ -524,7 +510,7 @@ pub fn run(plan_path: &Path, port: u16) -> Result<(), ServeError> {
     println!("http://127.0.0.1:{actual_port}/");
     std::io::stdout().flush().map_err(ServeError::Print)?;
 
-    let mut cache = Cache::default();
+    let mut cache = Cache::new(appendix);
     let mut watchdog = Watchdog::default();
 
     loop {
@@ -622,6 +608,33 @@ mod tests {
         let error = handle_comment(&plan.0, request.as_bytes()).expect_err("empty is refused");
 
         assert!(matches!(error, CommentError::Empty));
+    }
+
+    #[test]
+    fn test_a_brief_cache_serves_the_page_without_the_appendix() {
+        let plan = TempPlan::new("brief");
+        let mut cache = Cache::new(Appendix::Omitted);
+
+        let html = cache.response(&plan.0);
+
+        assert!(html.contains("<h2>Delivery</h2>"), "{html}");
+        assert!(
+            !html.contains("<details class=\"section secondary appendix\">"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn test_a_full_cache_serves_the_page_with_the_appendix() {
+        let plan = TempPlan::new("full");
+        let mut cache = Cache::new(Appendix::Included);
+
+        let html = cache.response(&plan.0);
+
+        assert!(
+            html.contains("<details class=\"section secondary appendix\">"),
+            "{html}"
+        );
     }
 
     #[test]

@@ -131,29 +131,31 @@ details.secondary .body > dl {
   max-width: 54rem; margin-left: auto; margin-right: auto;
 }
 
-/* Auxiliary/reference sections (Evidence limitations, Unresolved facts and
-   remedies, Risk-selected reviews, Advisory findings, Discussion) fold under
-   one "Reference" rail after every primary section — read-on-demand
-   supporting material, not the plan's decision-relevant narrative. Ported
-   from the oracle's `render_section`/`SECONDARY` fold (render.py:1025-1061,
-   :1194-1200): a `<details class="section secondary">` with the heading in
-   its `<summary>`, closed by default. `summary h2` overrides the base `h2`
-   layout for inline use next to the ▸/▾ toggle glyph — it is never reached by
-   `.section > h2`'s centred treatment above, since that rule's `>` combinator
-   only matches an `h2` that is a *direct* child of `.section`, and this `h2`
-   is a child of `<summary>` instead. */
+/* The appendix: every derived figure (evidence map, impact areas, changed
+   symbols, call graph, review timeline, discussion) folds into one
+   `details.secondary.appendix` disclosure after the authored plan —
+   read-on-demand supporting material, closed by default. Ported from the
+   oracle's `render_section`/`SECONDARY` fold (render.py:1025-1061,
+   :1194-1200). `summary h2` overrides the base `h2` layout for inline use next
+   to the ▸/▾ toggle glyph — it is never reached by `.section > h2`'s centred
+   treatment above, since that rule's `>` combinator only matches an `h2` that
+   is a *direct* child of `.section`, and this `h2` is a child of `<summary>`
+   instead. */
 details.secondary { border-top: 1px solid var(--rule); padding: .9rem 0; }
 details.secondary > summary { cursor: pointer; list-style: none; }
 details.secondary > summary h2 { display: inline; margin: 0; }
 details.secondary > summary::before { content: "▸ "; color: var(--muted); }
 details.secondary[open] > summary::before { content: "▾ "; }
 details.secondary .body { padding-top: .75rem; }
-
-/* The "Reference" rail label grouping every folded section — an understated
-   group heading, not a section heading: it keeps the base `h2` rule's muted,
-   uppercase treatment but stays left-aligned (it is not a `.section > h2`, so
-   that rule's centring never applies here either). */
-.rail { margin: 3.5rem 0 1.5rem; }
+.appendix-digest { color: var(--muted); font-size: .8rem; margin-left: .5rem; }
+/* Each appendix part sits one level below `.section`, so it re-applies the
+   centred measure the direct-child `.section > ...` rules give an open
+   section. */
+.appendix-part { margin: 0 0 2rem; }
+.appendix-part > h3, .appendix-part > p, .appendix-part > ul, .appendix-part > dl {
+  max-width: 54rem; margin-left: auto; margin-right: auto;
+}
+.appendix-part > h3 { text-align: center; }
 
 dl { margin: .7rem 0; }
 dt { margin-top: .9rem; color: var(--reference); font-size: 1rem; font-weight: 700; }
@@ -204,22 +206,14 @@ tbody tr:last-child td { border-bottom: 0; }
 .shape-behavioral { color: var(--warning); background: var(--warning-bg); }
 .shape-plain { color: var(--muted); background: var(--rule); }
 
-/* Blast-radius coverage strip: a wrap of chips above the impact table, one per
-   lane. A covered lane reads in the pass colour with its subjects; a lane
-   explicitly set aside recedes to muted with its reason, so the whole blast
-   surface and every deliberate gap are visible before the table of specifics. */
-.coverage { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 auto 1rem; max-width: 54rem; }
-.cov { display: inline-flex; align-items: baseline; gap: .35rem; padding: .2rem .55rem; border-radius: .4rem; font-size: .8rem; border: 1px solid var(--line); }
-.cov-yes { background: var(--pass-bg); border-color: var(--pass-bg); }
-.cov-no { background: var(--rule); }
-.cov-mark { font-weight: 700; }
-.cov-yes .cov-mark { color: var(--pass); }
-.cov-no .cov-mark { color: var(--muted); }
-.cov-lane { font-weight: 650; text-transform: uppercase; letter-spacing: .03em; font-size: .68rem; }
-.cov-yes .cov-lane { color: var(--pass); }
-.cov-no .cov-lane { color: var(--muted); }
-.cov-detail { color: var(--ink); }
-.cov-no .cov-detail { color: var(--muted); }
+/* Blast-radius coverage rides on the impact table: a covered lane is a pass-
+   coloured pill on the row of each subject it covers; lanes set aside for one
+   shared reason collapse into a single muted line under the table, so every
+   deliberate gap stays visible without re-listing the subjects. */
+.lane-covered { color: var(--pass); background: var(--pass-bg); }
+.set-aside { list-style: none; padding-left: 0; font-size: .8rem; color: var(--muted); }
+.set-aside > li { margin: .3rem 0; }
+.set-aside-why { color: var(--ink); }
 
 /* Verification outcome: passed/failed mirror pass/error verbatim (as
    `.tre-added`/`.tre-removed` already do); not run is inert, same
@@ -453,6 +447,7 @@ figure.code figcaption { margin: .65rem 0 0; }
   border: 2px solid var(--reference); background: var(--paper); flex: none; }
 .tl-gate .tl-dot { border-color: var(--error); }
 .tl-oneway .tl-dot { border-color: var(--context); background: var(--context); }
+.tl-marker .tl-dot { border-color: var(--accent); background: var(--accent); }
 .tl-body { display: flex; flex-direction: column; gap: .15rem; }
 .tl-n { font-weight: 600; font-size: .95rem; }
 .tl-w { font: .72rem ui-monospace, monospace; color: var(--reference); }
@@ -461,10 +456,11 @@ figure.code figcaption { margin: .65rem 0 0; }
 .tl-rb .item-cap { font-size: .72rem; }
 .tl-clear { font-size: .8rem; color: var(--pass); }
 
-/* The folded review timeline: its digest sits beside the "Review timeline"
-   heading in the summary, carrying the all-clear lane/consumer counts the
-   expanded body no longer spells out line by line. */
-.timeline-fold > summary .tl-digest { color: var(--muted); font-size: .8rem; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: .5rem; }
+/* The review timeline's digest sits under its appendix heading, carrying the
+   all-clear lane/consumer counts the body no longer spells out line by line. */
+.tl-digest { color: var(--muted); font-size: .8rem; text-align: center; }
+/* A stage label over each group of merge requests that may land together. */
+.mr-stage { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 1rem 0 .4rem; }
 
 /* Seq (§1.3, FP2-HTML) — ported verbatim from render.py's `d_seq`/CSS
    (render.py:323-372, :1223-1249, :1431-1440), not an SVG canvas: `.d`/`.seq`

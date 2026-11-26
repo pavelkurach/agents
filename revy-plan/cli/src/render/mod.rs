@@ -8,4 +8,4 @@ mod diagram;
 mod markdown;
 pub mod plan;
 
-pub use plan::{RenderContext, RenderedPlan, render};
+pub use plan::{Appendix, RenderContext, RenderedPlan, render};

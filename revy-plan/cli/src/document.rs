@@ -5,6 +5,7 @@
 //! state is never deserialized directly.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 use schemars::{JsonSchema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
@@ -14,11 +15,12 @@ use thiserror::Error;
 use crate::capability::CapabilityReport;
 use crate::evidence::Evidence;
 use crate::ids::{ClaimId, EvidenceId};
+use crate::issues::Issues;
 use crate::model::delivery::DeliveryPlan;
 use crate::model::impact::ImpactEntry;
 use crate::model::review::{PlanRegion, RegionFingerprint, fingerprints};
-use crate::primitives::{NonEmptyText, Slug};
-use crate::repository::Repository;
+use crate::primitives::{NonEmptyText, RepoAlias, Slug};
+use crate::repository::{DeclarationError, Repositories, Repository};
 use crate::state::{Candidate, RawExplorationContext, RawRunState, RunState, history_finding_ids};
 
 /// The raw, deserializable plan document. This is the one and only full-plan
@@ -27,8 +29,33 @@ use crate::state::{Candidate, RawExplorationContext, RawRunState, RunState, hist
 #[serde(deny_unknown_fields)]
 pub struct RawPlanDocument {
     pub slug: Slug,
+    /// The primary repository: it keys the plan home and is cited unprefixed.
     pub repository: Repository,
+    /// The primary repository's alias; omitted when it is the default derived
+    /// from `repository.name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_alias: Option<RepoAlias>,
+    /// Every other repository the plan cites, by alias (`alias:path`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub repositories: BTreeMap<RepoAlias, Repository>,
     pub run: RawRunState,
+}
+
+impl RawPlanDocument {
+    /// The proven repository set this document declares.
+    pub fn declared_repositories(&self) -> Result<Repositories, DeclarationError> {
+        let alias = self
+            .repository_alias
+            .clone()
+            .unwrap_or_else(|| RepoAlias::for_key(&self.repository.name));
+        Repositories::new(
+            alias,
+            self.repository.clone(),
+            self.repositories
+                .iter()
+                .map(|(alias, repository)| (alias.clone(), repository.clone())),
+        )
+    }
 }
 
 /// Where an evidence item was found in the parsed document.
@@ -77,6 +104,22 @@ impl ParsePlanError {
         Self { pointer, message }
     }
 
+    /// The first defect's pointer (re-rooted under `base`), with every defect
+    /// listed in the message.
+    fn from_issues<E: std::fmt::Display>(base: &str, issues: &Issues<E>) -> Self {
+        let first = issues.first();
+        let mut message = first.error().to_string();
+        for located in issues.iter().skip(1) {
+            let _ = write!(
+                message,
+                "; {} (at {base}{})",
+                located.error(),
+                located.pointer().as_str()
+            );
+        }
+        Self::at(format!("{base}{}", first.pointer().as_str()), message)
+    }
+
     fn from_serde(error: &serde_path_to_error::Error<serde_json::Error>) -> Self {
         let message = error.inner().to_string();
         let base = json_pointer_from_path(error.path());
@@ -95,7 +138,7 @@ impl ParsePlanError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedPlan {
     slug: Slug,
-    repository: Repository,
+    repositories: Repositories,
     state: RunState,
     evidence_by_id: BTreeMap<EvidenceId, EvidenceIndex>,
     claim_by_id: BTreeMap<ClaimId, ClaimIndex>,
@@ -103,16 +146,14 @@ pub struct ParsedPlan {
 }
 
 impl ParsedPlan {
-    /// A fresh plan awaiting the user's decision over its capability report.
+    /// A fresh plan awaiting the user's decision over its capability report —
+    /// or already exploring when the report leaves nothing to decide.
     #[must_use]
-    pub const fn new(slug: Slug, repository: Repository, report: CapabilityReport) -> Self {
+    pub fn new(slug: Slug, repositories: Repositories, report: CapabilityReport) -> Self {
         Self {
             slug,
-            repository,
-            state: RunState::AwaitingCapabilityApproval {
-                report,
-                prior: None,
-            },
+            repositories,
+            state: RunState::opening(report),
             evidence_by_id: BTreeMap::new(),
             claim_by_id: BTreeMap::new(),
             region_fingerprints: BTreeMap::new(),
@@ -122,17 +163,16 @@ impl ParsedPlan {
     /// Parse raw bytes into a proven plan.
     pub fn parse(raw: &[u8]) -> Result<Self, ParsePlanError> {
         let document = deserialize(raw)?;
+        let repositories = document
+            .declared_repositories()
+            .map_err(|error| ParsePlanError::at("/repositories".to_owned(), error.to_string()))?;
         let (evidence_by_id, claim_by_id) = index_and_resolve(&document)?;
-        prove_candidate(&document)?;
+        prove_candidate(&document, &repositories)?;
         let region_fingerprints = region_fingerprints(&document);
-        let RawPlanDocument {
-            slug,
-            repository,
-            run,
-        } = document;
+        let RawPlanDocument { slug, run, .. } = document;
         Ok(Self {
             slug,
-            repository,
+            repositories,
             state: run.prove(),
             evidence_by_id,
             claim_by_id,
@@ -144,8 +184,36 @@ impl ParsedPlan {
         &self.slug
     }
 
+    /// The primary repository.
     pub const fn repository(&self) -> &Repository {
-        &self.repository
+        self.repositories.primary()
+    }
+
+    pub const fn repositories(&self) -> &Repositories {
+        &self.repositories
+    }
+
+    /// This plan with one more declared repository.
+    pub fn declaring(
+        self,
+        alias: RepoAlias,
+        repository: Repository,
+    ) -> Result<Self, DeclarationError> {
+        Ok(Self {
+            repositories: self.repositories.with(alias, repository)?,
+            ..self
+        })
+    }
+
+    /// This plan with every repository's identity re-captured.
+    pub fn recapturing<E>(
+        self,
+        capture: impl FnMut(&Repository) -> Result<Repository, E>,
+    ) -> Result<Self, E> {
+        Ok(Self {
+            repositories: self.repositories.recaptured(capture)?,
+            ..self
+        })
     }
 
     pub const fn state(&self) -> &RunState {
@@ -166,12 +234,21 @@ impl ParsedPlan {
 
     /// Project the proven state back into a raw document and serialize it.
     pub fn to_canonical_json(&self) -> Result<String, serde_json::Error> {
-        let document = RawPlanDocument {
+        serde_json::to_string(&self.raw_document(self.state.to_raw()))
+    }
+
+    /// This plan's identity and repositories around `run`.
+    pub(crate) fn raw_document(&self, run: RawRunState) -> RawPlanDocument {
+        let repositories = &self.repositories;
+        let primary = repositories.primary();
+        let alias = repositories.primary_alias();
+        RawPlanDocument {
             slug: self.slug.clone(),
-            repository: self.repository.clone(),
-            run: self.state.to_raw(),
-        };
-        serde_json::to_string(&document)
+            repository: primary.clone(),
+            repository_alias: (*alias != RepoAlias::for_key(&primary.name)).then(|| alias.clone()),
+            repositories: repositories.others().clone(),
+            run,
+        }
     }
 }
 
@@ -341,14 +418,13 @@ fn region_fingerprints(document: &RawPlanDocument) -> BTreeMap<PlanRegion, Regio
 
 /// Prove the candidate coherence of every candidate-bearing state (design §6.6),
 /// and that a final plan's accepted findings all appear in its review history.
-fn prove_candidate(document: &RawPlanDocument) -> Result<(), ParsePlanError> {
+fn prove_candidate(
+    document: &RawPlanDocument,
+    repositories: &Repositories,
+) -> Result<(), ParsePlanError> {
     if let Some((candidate, base)) = document.run.candidate() {
-        Candidate::parse(candidate.clone(), &document.repository).map_err(|error| {
-            ParsePlanError::at(
-                format!("{base}{}", error.pointer()),
-                error.message().to_owned(),
-            )
-        })?;
+        Candidate::parse(candidate.clone(), repositories)
+            .map_err(|issues| ParsePlanError::from_issues(base, &issues))?;
     }
     if let Some((accepted, history)) = document.run.final_accepted_and_history() {
         let known = history_finding_ids(history);

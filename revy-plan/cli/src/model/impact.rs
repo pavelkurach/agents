@@ -90,8 +90,24 @@ impl BlastLane {
         Self::Security,
     ];
 
+    /// The lane's wire value — what a result writes, so error texts name lanes
+    /// by it.
+    pub const fn wire(self) -> &'static str {
+        match self {
+            Self::Api => "api",
+            Self::DataAtRest => "data_at_rest",
+            Self::Concurrency => "concurrency",
+            Self::ResourceBounds => "resource_bounds",
+            Self::Observability => "observability",
+            Self::Compatibility => "compatibility",
+            Self::Configuration => "configuration",
+            Self::Tests => "tests",
+            Self::Security => "security",
+        }
+    }
+
     /// The lane's human-facing label — the wire token spelled for a reader, used
-    /// in gate errors and the rendered coverage strip.
+    /// in the rendered coverage strip.
     pub const fn label(self) -> &'static str {
         match self {
             Self::Api => "API",

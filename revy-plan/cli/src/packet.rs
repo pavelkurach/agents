@@ -9,8 +9,9 @@ use schemars::{JsonSchema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::capability::{CapabilityDecision, CapabilityReport};
+use crate::capability::{CapabilityDecision, CapabilityReportInput};
 use crate::evidence::Evidence;
+use crate::ids::FindingId;
 use crate::model::claim::{Claim, UnresolvedFact};
 use crate::model::content::{
     DesignBrief, PlanContent, ProposedDecision, SpecialistFocus, UserAnswer,
@@ -19,7 +20,7 @@ use crate::model::delivery::DeliveryPlan;
 use crate::model::impact::{ImpactAssessment, ImpactCoverage};
 use crate::model::review::{CompletedReview, Ruling, Triage};
 use crate::primitives::{NonEmptyText, OneOrMore, Sha256Digest};
-use crate::state::RawCandidate;
+use crate::state::{RawCandidate, ToolFailure};
 
 /// The closed set of work the frontier can dispatch. Exactly ten kinds (design
 /// §18.5). The result each consumes is derived from this kind, never a parallel
@@ -116,7 +117,7 @@ impl WorkKey {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ExplorationNext {
     Complete,
-    ProposeCapability { report: CapabilityReport },
+    ProposeCapability { report: CapabilityReportInput },
 }
 
 /// The bundle an exploration packet returns.
@@ -129,6 +130,10 @@ pub struct ExplorationResult {
     pub impact: Vec<ImpactAssessment>,
     #[serde(default)]
     pub coverage: Vec<ImpactCoverage>,
+    /// Approved tools tried and failed this exploration; each entry discharges
+    /// that proposal's obligation to appear as evidence provenance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_failures: Vec<ToolFailure>,
     pub next: ExplorationNext,
 }
 
@@ -183,7 +188,7 @@ pub struct ReviewDecisionResult {
 /// `runtime`. Workflow transitions receive only [`CheckedWorkResult`].
 #[derive(Debug)]
 pub enum RawWorkResult {
-    CapabilityReport(CapabilityReport),
+    CapabilityReport(CapabilityReportInput),
     CapabilityDecision(CapabilityDecision),
     Exploration(ExplorationResult),
     DesignBrief(DesignBriefResult),
@@ -212,15 +217,133 @@ impl CheckedWorkResult {
     }
 }
 
+/// A result that failed its runtime check, kept to rehearse its transition.
+///
+/// The workflow reports those defects too. Constructed only by
+/// `runtime`; [`crate::workflow::rehearse`] consumes it and never yields a plan.
+#[derive(Debug)]
+pub struct ProvisionalWorkResult(RawWorkResult);
+
+impl ProvisionalWorkResult {
+    pub(crate) const fn provisional(raw: RawWorkResult) -> Self {
+        Self(raw)
+    }
+
+    pub(crate) fn into_raw(self) -> RawWorkResult {
+        self.0
+    }
+}
+
+/// A user/orchestrator revision of the candidate under review.
+///
+/// The revised candidate (built by patching the current one), what changed and
+/// why, and the review findings it addresses. Not a packet result — `revise`
+/// submits it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevisionResult {
+    pub candidate: Box<RawCandidate>,
+    pub note: NonEmptyText,
+    pub addresses: Vec<FindingId>,
+}
+
+/// The document a revision patch applies to: `{"candidate": <current>}`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevisionSubject {
+    candidate: Box<RawCandidate>,
+}
+
+impl RevisionResult {
+    /// Decode a patched revision subject into a revision carrying `note` and
+    /// the findings it `addresses`.
+    pub fn decode(
+        bytes: &[u8],
+        note: NonEmptyText,
+        addresses: Vec<FindingId>,
+    ) -> Result<Self, DecodeError> {
+        let subject: RevisionSubject = decode_named("revision", bytes)?;
+        Ok(Self {
+            candidate: subject.candidate,
+            note,
+            addresses,
+        })
+    }
+}
+
+/// A revision whose evidence passed the runtime check. Constructed only by
+/// `runtime`; [`crate::workflow::revise`] consumes it.
+#[derive(Debug)]
+pub struct CheckedRevision(RevisionResult);
+
+impl CheckedRevision {
+    pub(crate) const fn checked(revision: RevisionResult) -> Self {
+        Self(revision)
+    }
+
+    pub(crate) fn into_inner(self) -> RevisionResult {
+        self.0
+    }
+}
+
+/// A revision that failed its runtime check, kept to rehearse its transition.
+#[derive(Debug)]
+pub struct ProvisionalRevision(RevisionResult);
+
+impl ProvisionalRevision {
+    pub(crate) const fn provisional(revision: RevisionResult) -> Self {
+        Self(revision)
+    }
+
+    pub(crate) fn into_inner(self) -> RevisionResult {
+        self.0
+    }
+}
+
 /// A packet result that does not satisfy its packet schema.
 #[derive(Debug, Error)]
 pub enum DecodeError {
-    #[error("result does not satisfy the `{kind}` schema: {source}")]
+    #[error("result does not satisfy the `{kind}` schema at {pointer}: {source}")]
     Malformed {
         kind: &'static str,
+        pointer: String,
         #[source]
         source: serde_json::Error,
     },
+}
+
+fn decode_as<T: serde::de::DeserializeOwned>(
+    kind: WorkKind,
+    bytes: &[u8],
+) -> Result<T, DecodeError> {
+    decode_named(kind.name(), bytes)
+}
+
+fn decode_named<T: serde::de::DeserializeOwned>(
+    kind: &'static str,
+    bytes: &[u8],
+) -> Result<T, DecodeError> {
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
+        let pointer = decode_pointer(error.path());
+        DecodeError::Malformed {
+            kind,
+            pointer,
+            source: error.into_inner(),
+        }
+    })
+}
+
+fn decode_pointer(path: &serde_path_to_error::Path) -> String {
+    use serde_path_to_error::Segment;
+    let mut pointer = crate::issues::JsonPointer::root();
+    for segment in path {
+        match segment {
+            Segment::Seq { index } => pointer = pointer.join(index),
+            Segment::Map { key } => pointer = pointer.join(key),
+            Segment::Enum { .. } | Segment::Unknown => {}
+        }
+    }
+    pointer.to_string()
 }
 
 // The single source mapping each [`WorkKind`] to its result type: both
@@ -230,11 +353,7 @@ macro_rules! packet_results {
     ($($kind:pat => $ty:ty => $variant:ident),+ $(,)?) => {
         fn decode(kind: WorkKind, bytes: &[u8]) -> Result<RawWorkResult, DecodeError> {
             match kind {
-                $($kind =>
-                    serde_json::from_slice::<$ty>(bytes)
-                        .map(RawWorkResult::$variant)
-                        .map_err(|source| DecodeError::Malformed { kind: kind.name(), source }),
-                )+
+                $($kind => decode_as::<$ty>(kind, bytes).map(RawWorkResult::$variant),)+
             }
         }
 
@@ -247,7 +366,7 @@ macro_rules! packet_results {
 }
 
 packet_results!(
-    WorkKind::CapabilityReport => CapabilityReport => CapabilityReport,
+    WorkKind::CapabilityReport => CapabilityReportInput => CapabilityReport,
     WorkKind::CapabilityApproval => CapabilityDecision => CapabilityDecision,
     WorkKind::Exploration => ExplorationResult => Exploration,
     WorkKind::DesignBrief => DesignBriefResult => DesignBrief,
@@ -352,6 +471,85 @@ impl ReadyPacket {
     /// Decode packet bytes into the raw result this packet's kind consumes.
     pub fn decode_result(&self, bytes: &[u8]) -> Result<RawWorkResult, DecodeError> {
         decode(self.kind, bytes)
+    }
+}
+
+/// Which ready packet a result answers: the sole packet on the frontier, or the
+/// one named by its work key or (when unambiguous) its kind name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkSelector {
+    Sole,
+    Named(NonEmptyText),
+}
+
+impl WorkSelector {
+    /// The selector for an optional `--work` argument.
+    pub fn parse(raw: Option<&str>) -> Result<Self, crate::primitives::PrimitiveError> {
+        raw.map_or(Ok(Self::Sole), |raw| {
+            NonEmptyText::parse(raw).map(Self::Named)
+        })
+    }
+}
+
+/// A [`WorkSelector`] that does not pick exactly one ready packet.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum SelectError {
+    #[error("the plan is final; no packet is ready")]
+    Terminal,
+    #[error("{} packets are ready; pass --work with one of: {}", offered.len(), offered.join(", "))]
+    SeveralReady { offered: Vec<String> },
+    #[error("no ready packet has work key or kind `{selector}`; ready: {}", offered.join(", "))]
+    Unknown {
+        selector: String,
+        offered: Vec<String>,
+    },
+    #[error("kind `{kind}` names {} ready packets; pass one work key: {}", keys.len(), keys.join(", "))]
+    AmbiguousKind { kind: String, keys: Vec<String> },
+}
+
+fn offered(frontier: &Frontier) -> Vec<String> {
+    frontier
+        .iter()
+        .map(|packet| format!("{} ({})", packet.key().as_str(), packet.kind().name()))
+        .collect()
+}
+
+impl Frontier {
+    /// The ready packet `selector` picks: the sole packet, the packet with that
+    /// work key, or the only packet of that kind.
+    pub fn select(&self, selector: &WorkSelector) -> Result<&ReadyPacket, SelectError> {
+        if matches!(self, Self::Terminal) {
+            return Err(SelectError::Terminal);
+        }
+        match selector {
+            WorkSelector::Sole => self.only().map_err(|_| SelectError::SeveralReady {
+                offered: offered(self),
+            }),
+            WorkSelector::Named(name) => {
+                let name = name.as_str();
+                if let Some(packet) = self.iter().find(|packet| packet.key().as_str() == name) {
+                    return Ok(packet);
+                }
+                let by_kind: Vec<&ReadyPacket> = self
+                    .iter()
+                    .filter(|packet| packet.kind().name() == name)
+                    .collect();
+                match by_kind.as_slice() {
+                    [packet] => Ok(packet),
+                    [] => Err(SelectError::Unknown {
+                        selector: name.to_owned(),
+                        offered: offered(self),
+                    }),
+                    several => Err(SelectError::AmbiguousKind {
+                        kind: name.to_owned(),
+                        keys: several
+                            .iter()
+                            .map(|packet| packet.key().as_str().to_owned())
+                            .collect(),
+                    }),
+                }
+            }
+        }
     }
 }
 

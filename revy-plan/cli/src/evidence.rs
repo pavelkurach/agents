@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::capability::RepositoryIdentity;
 use crate::command::CommandSpec;
 use crate::ids::EvidenceId;
-use crate::primitives::{Location, NonEmptyText, OneOrMore, RepoRelPath};
+use crate::primitives::{Location, NonEmptyText, OneOrMore, RepoAlias, RepoRelPath, RepoScope};
 
 /// The kind of evidence a capability can produce.
 #[derive(
@@ -209,7 +211,7 @@ pub struct StructuralEvidence {
 #[serde(deny_unknown_fields)]
 pub struct TextualEvidence {
     pub id: EvidenceId,
-    pub scope: OneOrMore<RepoRelPath>,
+    pub scope: OneOrMore<RepoScope>,
     pub pattern: NonEmptyText,
     pub matches: Vec<TextMatch>,
     /// Whether the recorded matches are every match, or a sample of a larger set.
@@ -285,6 +287,65 @@ impl Evidence {
             Self::Documentation(evidence) => evidence.target.as_ref(),
             Self::Inference(_) => None,
         }
+    }
+
+    /// The optional `target` slot of the kinds that may omit it on input (and
+    /// that the CLI stamps); `None` for kinds whose identity is required or
+    /// absent.
+    pub(crate) const fn optional_target_mut(&mut self) -> Option<&mut Option<RepositoryIdentity>> {
+        match self {
+            Self::Semantic(evidence) => Some(&mut evidence.target),
+            Self::Structural(evidence) => Some(&mut evidence.target),
+            Self::Textual(evidence) => Some(&mut evidence.target),
+            Self::Documentation(evidence) => Some(&mut evidence.target),
+            Self::Runtime(_) | Self::History(_) | Self::Inference(_) => None,
+        }
+    }
+
+    /// Every source location this evidence anchors to.
+    pub fn locations(&self) -> Vec<&Location> {
+        match self {
+            Self::Textual(evidence) => evidence
+                .matches
+                .iter()
+                .map(|occurrence| &occurrence.location)
+                .collect(),
+            Self::Semantic(evidence) => match &evidence.observation {
+                SemanticObservation::Definitions { locations } => locations.iter().collect(),
+                SemanticObservation::References { references, .. } => references
+                    .iter()
+                    .map(|reference| &reference.location)
+                    .collect(),
+                SemanticObservation::Implementations { locations, .. } => {
+                    locations.iter().collect()
+                }
+                SemanticObservation::CallEdges { edges, .. } => edges
+                    .iter()
+                    .flat_map(|edge| [&edge.caller, &edge.callee])
+                    .collect(),
+            },
+            Self::Structural(evidence) => match &evidence.observation {
+                StructuralObservation::Symbols { locations, .. } => locations.iter().collect(),
+                StructuralObservation::Imports { .. } => Vec::new(),
+            },
+            Self::Runtime(_) | Self::Documentation(_) | Self::History(_) | Self::Inference(_) => {
+                Vec::new()
+            }
+        }
+    }
+
+    /// The distinct repositories this evidence's anchors and scopes cite, in
+    /// order; `None` is the primary repository. Empty for anchorless evidence.
+    pub fn cited_repos(&self) -> BTreeSet<Option<&RepoAlias>> {
+        let scopes = match self {
+            Self::Textual(evidence) => evidence.scope.iter().map(RepoScope::repo).collect(),
+            _ => Vec::new(),
+        };
+        self.locations()
+            .into_iter()
+            .map(|location| location.path.repo())
+            .chain(scopes)
+            .collect()
     }
 
     /// Whether a verified plan must ground this evidence on its repository

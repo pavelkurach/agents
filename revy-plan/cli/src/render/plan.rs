@@ -6,11 +6,16 @@
 //! `DRAFT` watermark; a final candidate with accepted findings carries an
 //! `ACCEPTED WITH N UNRESOLVED FINDINGS` banner before the orientation (design §9).
 //!
-//! Four figures are derived from typed data and are mandatory renderer output —
-//! never authored, never omitted when the data exists: the evidence → claim map
-//! (with a `sampled` marker), the changed-symbol tree, the as-is call graph, and
-//! the review timeline. Authored `Block::Figure` diagrams remain for flows,
-//! sequences, and states.
+//! The authored plan comes first: brief, behavior, orientation, sections,
+//! decisions, delivery, and unresolved facts. Everything derived from typed
+//! exploration and review data follows in one appendix — one collapsed
+//! disclosure in HTML, one `Appendix` heading in Markdown — and
+//! [`Appendix::Omitted`] drops it entirely. The appendix figures are never
+//! authored and never omitted when the data exists in a full render: the
+//! evidence → claim map (with `sampled`/`limited` markers), impact areas with
+//! their blast-radius lanes, the changed-symbol tree, the as-is call graph, the
+//! review timeline, and the resolved discussion. Authored `Block::Figure`
+//! diagrams remain for flows, sequences, and states.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -42,7 +47,10 @@ use crate::primitives::{Location, NonEmptyText};
 use crate::render::autocode::autocode_markdown as autocode;
 use crate::render::diagram::{diagram_markdown_fallback, diagram_markup};
 use crate::render::markdown::{block_html, inline_markup};
-use crate::state::{Candidate, RawExplorationContext, ReviewRound};
+use crate::state::{
+    Candidate, DecisionDiff, RawExplorationContext, Reopen, ReopenTarget, ReviewRound, Revision,
+    RunState,
+};
 
 const CSS: &str = include_str!("plan.css");
 
@@ -54,8 +62,11 @@ static THEME: LazyLock<Theme> = LazyLock::new(|| {
         .unwrap_or_default()
 });
 
-/// What the renderer needs beyond the candidate: the state label, whether the plan
-/// is final, the review history, the accepted findings, and the comment overlay.
+/// What the renderer needs beyond the candidate.
+///
+/// The state label, whether the plan is final, the review history, the accepted
+/// findings, the comment overlay, and the reopens and revisions the timeline
+/// marks.
 #[derive(Debug, Clone, Copy)]
 pub struct RenderContext<'a> {
     pub state_label: &'a str,
@@ -63,6 +74,24 @@ pub struct RenderContext<'a> {
     pub history: &'a [ReviewRound],
     pub accepted: &'a [Finding],
     pub comments: &'a [Comment],
+    pub reopens: &'a [Reopen],
+    pub revisions: &'a [Revision],
+}
+
+impl<'a> RenderContext<'a> {
+    /// The context a run state supplies, under the given watermark label.
+    #[must_use]
+    pub fn for_state(state: &'a RunState, state_label: &'a str) -> Self {
+        Self {
+            state_label,
+            is_final: matches!(state, RunState::Final { .. }),
+            history: state.history(),
+            accepted: state.accepted(),
+            comments: state.comments(),
+            reopens: state.reopens(),
+            revisions: state.revisions(),
+        }
+    }
 }
 
 /// The Markdown and standalone HTML renderings of a plan.
@@ -72,10 +101,22 @@ pub struct RenderedPlan {
     pub html: String,
 }
 
+/// Whether a render carries the derived appendix after the authored plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Appendix {
+    Included,
+    /// The brief render: the authored plan alone, with its watermark and banner.
+    Omitted,
+}
+
 /// Render a candidate into Markdown and standalone HTML.
 #[must_use]
-pub fn render(candidate: &Candidate, context: &RenderContext<'_>) -> RenderedPlan {
-    let presentation = project(candidate, context);
+pub fn render(
+    candidate: &Candidate,
+    context: &RenderContext<'_>,
+    appendix: Appendix,
+) -> RenderedPlan {
+    let presentation = project(candidate, context, appendix);
     RenderedPlan {
         markdown: to_markdown(&presentation),
         html: to_html(&presentation),
@@ -83,11 +124,6 @@ pub fn render(candidate: &Candidate, context: &RenderContext<'_>) -> RenderedPla
 }
 
 // --- The private presentation projection ---------------------------------------
-
-struct Limitation {
-    source: String,
-    detail: String,
-}
 
 struct UnresolvedFactRow {
     id: String,
@@ -103,6 +139,9 @@ enum ImpactState {
     NotApplicable,
 }
 
+/// One impact subject, carrying the blast-radius lanes whose coverage names it
+/// — so a covered lane renders on its subject's row, not as a second listing of
+/// the same subjects.
 struct ImpactRow {
     subject: String,
     state: ImpactState,
@@ -110,12 +149,24 @@ struct ImpactRow {
     rationale: String,
     references: Vec<String>,
     references_are_ids: bool,
+    lanes: Vec<&'static str>,
 }
 
-struct CoverageRow {
-    lane: &'static str,
-    covered: bool,
-    detail: String,
+/// Lanes set aside for one shared reason, collapsed into a single line.
+struct SetAsideGroup {
+    reason: String,
+    lanes: Vec<&'static str>,
+}
+
+struct ImpactView {
+    rows: Vec<ImpactRow>,
+    set_aside: Vec<SetAsideGroup>,
+}
+
+impl ImpactView {
+    const fn is_empty(&self) -> bool {
+        self.rows.is_empty() && self.set_aside.is_empty()
+    }
 }
 
 struct RuledOutRow {
@@ -133,11 +184,12 @@ struct DecisionRow {
 }
 
 /// One evidence item backing a claim, with a marker when the evidence set was
-/// sampled rather than exhaustive.
+/// sampled rather than exhaustive, and when the evidence states a limitation.
 struct ClaimEvidenceRef {
     id: String,
     method: &'static str,
     sampled: bool,
+    limited: bool,
 }
 
 /// One claim and the evidence that backs it — the evidence → claim map (§9).
@@ -145,6 +197,33 @@ struct ClaimEvidenceRow {
     claim: String,
     statement: String,
     evidence: Vec<ClaimEvidenceRef>,
+    limitation: Option<String>,
+}
+
+/// The limitation one evidence item states, listed once however many claims
+/// cite it.
+struct EvidenceNote {
+    id: String,
+    method: &'static str,
+    detail: String,
+}
+
+/// An approved tool the explorer could not use, in place of its evidence.
+struct ToolFailureRow {
+    proposal: String,
+    reason: String,
+}
+
+struct EvidenceMapView {
+    claims: Vec<ClaimEvidenceRow>,
+    notes: Vec<EvidenceNote>,
+    tool_failures: Vec<ToolFailureRow>,
+}
+
+impl EvidenceMapView {
+    const fn is_empty(&self) -> bool {
+        self.claims.is_empty() && self.notes.is_empty() && self.tool_failures.is_empty()
+    }
 }
 
 /// One node in the changed-symbol tree: a directory, a file, or a symbol.
@@ -177,6 +256,22 @@ struct TimelineCheck {
     contested: bool,
 }
 
+/// One entry in the review timeline: a review wave, or a marker where the
+/// candidate was revised or the plan reopened.
+enum TimelineEntry {
+    Wave(TimelineWave),
+    Marker(TimelineMarker),
+}
+
+/// A revision or reopen between waves, with its note or reason.
+struct TimelineMarker {
+    label: String,
+    detail: String,
+    /// What the marker carried for the user to see: set-aside comments,
+    /// changes to user-owned decisions.
+    items: Vec<String>,
+}
+
 /// One wave in the review timeline.
 struct TimelineWave {
     wave: u32,
@@ -207,31 +302,18 @@ struct MrRow {
     standalone: String,
 }
 
-struct MrDagNode {
-    id: String,
-    title: String,
-}
-
-struct MrDagEdge {
-    from: String,
-    to: String,
-}
-
-struct MrDagView {
-    waves: Vec<Vec<MrDagNode>>,
-    edges: Vec<MrDagEdge>,
-}
-
 struct DeliveryView {
     requirements: Vec<RequirementRow>,
     criteria: Vec<CriterionRow>,
-    mrs: Vec<MrRow>,
-    mr_dag: MrDagView,
+    /// The merge requests in dependency order: each stage may land in parallel
+    /// once every earlier stage has landed. This one listing is the delivery
+    /// graph — no second figure repeats the same merge requests.
+    stages: Vec<Vec<MrRow>>,
 }
 
 impl DeliveryView {
     const fn has_content(&self) -> bool {
-        !self.requirements.is_empty() || !self.criteria.is_empty() || !self.mrs.is_empty()
+        !self.requirements.is_empty() || !self.criteria.is_empty() || !self.stages.is_empty()
     }
 }
 
@@ -305,21 +387,37 @@ struct PlanPresentation {
     accepted: AcceptedBanner,
     orientation: Option<OrientationView>,
     sections: Vec<SectionView>,
-    evidence_limitations: Vec<Limitation>,
     unresolved_facts: Vec<UnresolvedFactRow>,
-    impact_areas: Vec<ImpactRow>,
-    coverage: Vec<CoverageRow>,
-    evidence_claim_map: Vec<ClaimEvidenceRow>,
-    changed_symbols: Vec<SymbolTreeNode>,
-    call_graph: Vec<CallEdgeRow>,
     decisions: Vec<DecisionRow>,
-    timeline: Vec<TimelineWave>,
     delivery: DeliveryView,
-    authored_delivery_dag: bool,
     comments: Vec<Comment>,
+    /// Absent in a brief render.
+    appendix: Option<AppendixView>,
 }
 
-fn project(candidate: &Candidate, ctx: &RenderContext<'_>) -> PlanPresentation {
+/// Everything derived from exploration and review data, rendered after the
+/// authored plan as one appendix.
+struct AppendixView {
+    evidence_map: EvidenceMapView,
+    impact: ImpactView,
+    changed_symbols: Vec<SymbolTreeNode>,
+    call_graph: Vec<CallEdgeRow>,
+    timeline: Vec<TimelineEntry>,
+    discussion: Vec<Comment>,
+}
+
+impl AppendixView {
+    const fn is_empty(&self) -> bool {
+        self.evidence_map.is_empty()
+            && self.impact.is_empty()
+            && self.changed_symbols.is_empty()
+            && self.call_graph.is_empty()
+            && self.timeline.is_empty()
+            && self.discussion.is_empty()
+    }
+}
+
+fn project(candidate: &Candidate, ctx: &RenderContext<'_>, appendix: Appendix) -> PlanPresentation {
     let raw = candidate.raw();
     let exploration = &raw.exploration;
     let content = &raw.content;
@@ -334,17 +432,17 @@ fn project(candidate: &Candidate, ctx: &RenderContext<'_>) -> PlanPresentation {
         .into_iter()
         .map(|(_, _, diagram)| diagram)
         .collect();
-    let authored_delivery_dag = sections
-        .iter()
-        .flat_map(|section| &section.blocks)
-        .any(|block| {
-            matches!(
-                block,
-                BlockView::Figure {
-                    diagram: Diagram::Dag { .. }
-                }
-            )
-        });
+    let appendix = match appendix {
+        Appendix::Included => Some(AppendixView {
+            evidence_map: evidence_map(exploration),
+            impact: impact(exploration),
+            changed_symbols: changed_symbol_tree(content.changed_symbols.as_slice()),
+            call_graph: call_graph(exploration),
+            timeline: timeline(ctx.reopens, ctx.history, ctx.revisions),
+            discussion: resolved(ctx.comments).into_iter().cloned().collect(),
+        }),
+        Appendix::Omitted => None,
+    };
 
     PlanPresentation {
         title: raw.brief.title.as_ref().map(|t| t.as_str().to_owned()),
@@ -359,18 +457,11 @@ fn project(candidate: &Candidate, ctx: &RenderContext<'_>) -> PlanPresentation {
         accepted: accepted_banner(ctx.accepted),
         orientation: content.orientation.as_ref().map(orientation_view),
         sections,
-        evidence_limitations: evidence_limitations(exploration),
         unresolved_facts: unresolved_facts(exploration),
-        impact_areas: impact_areas(exploration),
-        coverage: coverage(exploration),
-        evidence_claim_map: evidence_claim_map(exploration),
-        changed_symbols: changed_symbol_tree(content.changed_symbols.as_slice()),
-        call_graph: call_graph(exploration),
         decisions: decisions(&raw.decisions),
-        timeline: timeline(ctx.history),
         delivery: delivery(&raw.delivery),
-        authored_delivery_dag,
         comments: ctx.comments.to_vec(),
+        appendix,
     }
 }
 
@@ -497,27 +588,6 @@ const fn is_behavior_diagram(diagram: &Diagram) -> bool {
     )
 }
 
-fn evidence_limitations(exploration: &RawExplorationContext) -> Vec<Limitation> {
-    let mut limitations: Vec<Limitation> = Vec::new();
-    for item in &exploration.evidence {
-        if let Some(detail) = evidence_limitation(item) {
-            limitations.push(Limitation {
-                source: format!("Evidence {} ({})", evidence_id(item), evidence_method(item)),
-                detail: detail.to_owned(),
-            });
-        }
-    }
-    for claim in &exploration.claims {
-        if let ClaimConclusion::Limited { limitation } = &claim.conclusion {
-            limitations.push(Limitation {
-                source: format!("Claim {}", claim.id),
-                detail: limitation.as_str().to_owned(),
-            });
-        }
-    }
-    limitations
-}
-
 fn unresolved_facts(exploration: &RawExplorationContext) -> Vec<UnresolvedFactRow> {
     exploration
         .uncertainties
@@ -547,90 +617,111 @@ fn remedy(disposition: &UncertaintyDisposition) -> String {
     }
 }
 
-fn impact_areas(exploration: &RawExplorationContext) -> Vec<ImpactRow> {
-    exploration
-        .impact
-        .iter()
-        .map(|assessment| {
-            let (state, shape, rationale, references, references_are_ids) = match &assessment.entry
+/// Impact subjects with the lanes that cover them, plus the set-aside lanes
+/// grouped by their shared reason. Every covered subject is a proven impact
+/// subject, so folding coverage onto the rows drops nothing.
+fn impact(exploration: &RawExplorationContext) -> ImpactView {
+    let mut set_aside: Vec<SetAsideGroup> = Vec::new();
+    for entry in &exploration.coverage {
+        if let LaneCoverage::NotConsidered { reason } = &entry.coverage {
+            match set_aside
+                .iter_mut()
+                .find(|group| group.reason == reason.as_str())
             {
-                ImpactEntry::Affected {
-                    rationale,
-                    shape,
-                    claims,
-                } => (
-                    ImpactState::Affected,
-                    Some(*shape),
-                    rationale.as_str().to_owned(),
-                    claims
-                        .iter()
-                        .map(|claim| claim.as_str().to_owned())
-                        .collect(),
-                    true,
-                ),
-                ImpactEntry::Unaffected { rationale, search } => (
-                    ImpactState::Unaffected,
-                    None,
-                    rationale.as_str().to_owned(),
-                    vec![search.as_str().to_owned()],
-                    false,
-                ),
-                ImpactEntry::Uncertain {
-                    rationale,
-                    uncertainty,
-                } => (
-                    ImpactState::Uncertain,
-                    None,
-                    rationale.as_str().to_owned(),
-                    vec![uncertainty.as_str().to_owned()],
-                    false,
-                ),
-                ImpactEntry::NotApplicable { rationale } => (
-                    ImpactState::NotApplicable,
-                    None,
-                    rationale.as_str().to_owned(),
-                    vec![dash()],
-                    false,
-                ),
-            };
-            ImpactRow {
-                subject: assessment.subject.as_str().to_owned(),
-                state,
-                shape,
-                rationale,
-                references,
-                references_are_ids,
+                Some(group) => group.lanes.push(entry.lane.label()),
+                None => set_aside.push(SetAsideGroup {
+                    reason: reason.as_str().to_owned(),
+                    lanes: vec![entry.lane.label()],
+                }),
             }
-        })
-        .collect()
+        }
+    }
+    ImpactView {
+        rows: exploration
+            .impact
+            .iter()
+            .map(|assessment| impact_row(assessment, exploration))
+            .collect(),
+        set_aside,
+    }
 }
 
-fn coverage(exploration: &RawExplorationContext) -> Vec<CoverageRow> {
-    exploration
+fn impact_row(
+    assessment: &crate::model::impact::ImpactAssessment,
+    exploration: &RawExplorationContext,
+) -> ImpactRow {
+    let (state, shape, rationale, references, references_are_ids) = match &assessment.entry {
+        ImpactEntry::Affected {
+            rationale,
+            shape,
+            claims,
+        } => (
+            ImpactState::Affected,
+            Some(*shape),
+            rationale.as_str().to_owned(),
+            claims
+                .iter()
+                .map(|claim| claim.as_str().to_owned())
+                .collect(),
+            true,
+        ),
+        ImpactEntry::Unaffected { rationale, search } => (
+            ImpactState::Unaffected,
+            None,
+            rationale.as_str().to_owned(),
+            vec![search.as_str().to_owned()],
+            false,
+        ),
+        ImpactEntry::Uncertain {
+            rationale,
+            uncertainty,
+        } => (
+            ImpactState::Uncertain,
+            None,
+            rationale.as_str().to_owned(),
+            vec![uncertainty.as_str().to_owned()],
+            false,
+        ),
+        ImpactEntry::NotApplicable { rationale } => (
+            ImpactState::NotApplicable,
+            None,
+            rationale.as_str().to_owned(),
+            vec![dash()],
+            false,
+        ),
+    };
+    let lanes = exploration
         .coverage
         .iter()
-        .map(|entry| match &entry.coverage {
-            LaneCoverage::Covered { subjects } => CoverageRow {
-                lane: entry.lane.label(),
-                covered: true,
-                detail: join(subjects.iter().map(NonEmptyText::as_str)),
-            },
-            LaneCoverage::NotConsidered { reason } => CoverageRow {
-                lane: entry.lane.label(),
-                covered: false,
-                detail: reason.as_str().to_owned(),
-            },
+        .filter(|entry| match &entry.coverage {
+            LaneCoverage::Covered { subjects } => subjects
+                .iter()
+                .any(|subject| subject == &assessment.subject),
+            LaneCoverage::NotConsidered { .. } => false,
         })
-        .collect()
+        .map(|entry| entry.lane.label())
+        .collect();
+    ImpactRow {
+        subject: assessment.subject.as_str().to_owned(),
+        state,
+        shape,
+        rationale,
+        references,
+        references_are_ids,
+        lanes,
+    }
 }
 
-fn evidence_claim_map(exploration: &RawExplorationContext) -> Vec<ClaimEvidenceRow> {
+/// The evidence → claim map with every stated limitation folded in: a limited
+/// claim carries its limitation on its own row, and each evidence item's
+/// limitation is listed once under the map, its citations marked `limited`.
+fn evidence_map(exploration: &RawExplorationContext) -> EvidenceMapView {
     let by_id: BTreeMap<&EvidenceId, &Evidence> = exploration
         .evidence
         .iter()
         .map(|item| (evidence_id(item), item))
         .collect();
-    exploration
+    let claims = exploration
         .claims
         .iter()
         .map(|claim| ClaimEvidenceRow {
@@ -645,21 +736,50 @@ fn evidence_claim_map(exploration: &RawExplorationContext) -> Vec<ClaimEvidenceR
                         id: reference.as_str().to_owned(),
                         method: item.map_or("?", |item| evidence_method(item)),
                         sampled: item.is_some_and(|item| evidence_sampled(item)),
+                        limited: item.is_some_and(|item| evidence_limitation(item).is_some()),
                     }
                 })
                 .collect(),
+            limitation: match &claim.conclusion {
+                ClaimConclusion::Limited { limitation } => Some(limitation.as_str().to_owned()),
+                ClaimConclusion::Established => None,
+            },
         })
-        .collect()
+        .collect();
+    let notes = exploration
+        .evidence
+        .iter()
+        .filter_map(|item| {
+            evidence_limitation(item).map(|detail| EvidenceNote {
+                id: evidence_id(item).as_str().to_owned(),
+                method: evidence_method(item),
+                detail: detail.to_owned(),
+            })
+        })
+        .collect();
+    let tool_failures = exploration
+        .tool_failures
+        .iter()
+        .map(|failure| ToolFailureRow {
+            proposal: failure.proposal.as_str().to_owned(),
+            reason: failure.reason.as_str().to_owned(),
+        })
+        .collect();
+    EvidenceMapView {
+        claims,
+        notes,
+        tool_failures,
+    }
 }
 
 /// Build the changed-symbol tree: directories nested, files under directories,
 /// symbols under files (design §9). Flattened to depth-tagged rows for rendering.
 fn changed_symbol_tree(symbols: &[ChangedSymbol]) -> Vec<SymbolTreeNode> {
     // Group symbols by file path, then walk the directory prefixes.
-    let mut by_file: BTreeMap<&str, Vec<&ChangedSymbol>> = BTreeMap::new();
+    let mut by_file: BTreeMap<String, Vec<&ChangedSymbol>> = BTreeMap::new();
     for symbol in symbols {
         by_file
-            .entry(symbol.path.as_str())
+            .entry(symbol.path.to_string())
             .or_default()
             .push(symbol);
     }
@@ -669,7 +789,7 @@ fn changed_symbol_tree(symbols: &[ChangedSymbol]) -> Vec<SymbolTreeNode> {
         let components: Vec<&str> = path.split('/').collect();
         let (dirs, file) = match components.split_last() {
             Some((file, dirs)) => (dirs, *file),
-            None => (&[][..], *path),
+            None => (&[][..], path.as_str()),
         };
         // Emit directory rows for any prefix not already open.
         for (depth, dir) in dirs.iter().enumerate() {
@@ -721,7 +841,7 @@ fn call_graph(exploration: &RawExplorationContext) -> Vec<CallEdgeRow> {
 }
 
 fn location_label(location: &Location) -> String {
-    format!("{}:{}", location.path.as_str(), location.line)
+    format!("{}:{}", location.path, location.line)
 }
 
 fn decisions(decisions: &[crate::model::content::Decision]) -> Vec<DecisionRow> {
@@ -764,10 +884,119 @@ fn decisions(decisions: &[crate::model::content::Decision]) -> Vec<DecisionRow> 
         .collect()
 }
 
-/// Build the review timeline: one wave per history round, findings coloured by
-/// severity with their triage/ruling outcome, lane verdicts, and consumer checks
-/// (design §9).
-fn timeline(history: &[ReviewRound]) -> Vec<TimelineWave> {
+/// Build the review timeline (design §9): the rounds of every candidate a reopen
+/// set aside, each closed by its reopen marker, then the current candidate's
+/// rounds — with a marker before the wave each revision entered.
+fn timeline(
+    reopens: &[Reopen],
+    history: &[ReviewRound],
+    revisions: &[Revision],
+) -> Vec<TimelineEntry> {
+    let mut entries = Vec::new();
+    for reopen in reopens {
+        candidate_timeline(&reopen.history, &reopen.revisions, &mut entries);
+        entries.push(TimelineEntry::Marker(TimelineMarker {
+            label: match reopen.target {
+                ReopenTarget::Exploration => "Reopened exploration".to_owned(),
+                ReopenTarget::Draft => "Reopened draft".to_owned(),
+            },
+            detail: reopen.reason.as_str().to_owned(),
+            items: comment_items(&reopen.comments),
+        }));
+    }
+    candidate_timeline(history, revisions, &mut entries);
+    entries
+}
+
+fn candidate_timeline(
+    history: &[ReviewRound],
+    revisions: &[Revision],
+    entries: &mut Vec<TimelineEntry>,
+) {
+    let mut pending = revisions.iter().peekable();
+    for wave in waves(history) {
+        while let Some(revision) = pending.next_if(|revision| revision.wave.get() <= wave.wave) {
+            entries.push(revision_marker(revision));
+        }
+        entries.push(TimelineEntry::Wave(wave));
+    }
+    entries.extend(pending.map(revision_marker));
+}
+
+fn revision_marker(revision: &Revision) -> TimelineEntry {
+    let mut detail = revision.note.as_str().to_owned();
+    if !revision.addresses.is_empty() {
+        let _ = write!(
+            detail,
+            " (addresses {})",
+            join(revision.addresses.iter().map(crate::ids::FindingId::as_str))
+        );
+    }
+    let items = revision
+        .decision_changes
+        .iter()
+        .map(decision_change_item)
+        .chain(comment_items(&revision.comments))
+        .collect();
+    TimelineEntry::Marker(TimelineMarker {
+        label: format!("Revised → wave {}", revision.wave.get()),
+        detail,
+        items,
+    })
+}
+
+fn comment_items(comments: &[Comment]) -> Vec<String> {
+    comments
+        .iter()
+        .map(|comment| {
+            format!(
+                "comment on {}{}: {}",
+                comment.anchor.token(),
+                if comment.resolved { " (resolved)" } else { "" },
+                comment.text
+            )
+        })
+        .collect()
+}
+
+fn decision_change_item(change: &DecisionDiff) -> String {
+    let list = |items: &[NonEmptyText]| join(items.iter().map(NonEmptyText::as_str));
+    let answer = |answer: &Option<NonEmptyText>| {
+        answer
+            .as_ref()
+            .map_or_else(|| "(none)".to_owned(), ToString::to_string)
+    };
+    match change {
+        DecisionDiff::Added { decision, after } => {
+            format!("decision `{decision}` added: {}", list(after))
+        }
+        DecisionDiff::Removed { decision, before } => {
+            format!("decision `{decision}` removed: {}", list(before))
+        }
+        DecisionDiff::Answer {
+            decision,
+            before,
+            after,
+        } => format!(
+            "decision `{decision}` answer: {} → {}",
+            answer(before),
+            answer(after)
+        ),
+        DecisionDiff::Alternatives {
+            decision,
+            before,
+            after,
+        } => format!(
+            "decision `{decision}` alternatives: {} → {}",
+            list(before),
+            list(after)
+        ),
+    }
+}
+
+/// One timeline wave per history round, findings coloured by severity with their
+/// triage/ruling outcome, lane verdicts, and consumer checks.
+fn waves(history: &[ReviewRound]) -> Vec<TimelineWave> {
     history
         .iter()
         .map(|round| {
@@ -900,22 +1129,55 @@ fn delivery(plan: &DeliveryPlan) -> DeliveryView {
                     .map(|mr| mr.id.as_str().to_owned()),
             })
             .collect(),
-        mrs: plan
-            .mrs
+        stages: mr_stages(plan),
+    }
+}
+
+fn mr_row(mr: &Mr) -> MrRow {
+    MrRow {
+        id: mr.id.as_str().to_owned(),
+        title: mr.title.as_str().to_owned(),
+        needs: mr.needs.iter().map(|id| id.as_str().to_owned()).collect(),
+        satisfies: mr
+            .satisfies
             .iter()
-            .map(|mr| MrRow {
-                id: mr.id.as_str().to_owned(),
-                title: mr.title.as_str().to_owned(),
-                needs: mr.needs.iter().map(|id| id.as_str().to_owned()).collect(),
-                satisfies: mr
-                    .satisfies
-                    .iter()
-                    .map(|id| id.as_str().to_owned())
-                    .collect(),
-                standalone: mr.standalone_behavior.as_str().to_owned(),
-            })
+            .map(|id| id.as_str().to_owned())
             .collect(),
-        mr_dag: mr_dag_view(plan),
+        standalone: mr.standalone_behavior.as_str().to_owned(),
+    }
+}
+
+/// The merge requests grouped into dependency stages. A candidate's delivery
+/// graph is proven acyclic, so the one-stage fallback in authored order only
+/// guards against ever dropping a merge request from the render.
+fn mr_stages(plan: &DeliveryPlan) -> Vec<Vec<MrRow>> {
+    let by_id: BTreeMap<&str, &Mr> = plan.mrs.iter().map(|mr| (mr.id.as_str(), mr)).collect();
+    let flat = || -> Vec<Vec<MrRow>> {
+        if plan.mrs.is_empty() {
+            Vec::new()
+        } else {
+            vec![plan.mrs.iter().map(mr_row).collect()]
+        }
+    };
+    let Ok(graph) = DeliveryGraph::parse(plan) else {
+        return flat();
+    };
+    let stages: Vec<Vec<MrRow>> = graph
+        .waves()
+        .as_slice()
+        .iter()
+        .map(|wave| {
+            wave.iter()
+                .filter_map(|mr_id| by_id.get(mr_id.as_str()))
+                .map(|mr| mr_row(mr))
+                .collect()
+        })
+        .collect();
+    let staged_count: usize = stages.iter().map(Vec::len).sum();
+    if staged_count == plan.mrs.len() {
+        stages
+    } else {
+        flat()
     }
 }
 
@@ -931,39 +1193,6 @@ fn verify_label(verify: &Verify) -> String {
         }
         Verify::Manual { procedure } => format!("manual: {}", procedure.as_str()),
     }
-}
-
-fn mr_dag_view(plan: &DeliveryPlan) -> MrDagView {
-    let by_id: BTreeMap<&str, &Mr> = plan.mrs.iter().map(|mr| (mr.id.as_str(), mr)).collect();
-    let waves: Vec<Vec<MrDagNode>> = DeliveryGraph::parse(plan)
-        .map(|graph| {
-            graph
-                .waves()
-                .as_slice()
-                .iter()
-                .map(|wave| {
-                    wave.iter()
-                        .filter_map(|mr_id| by_id.get(mr_id.as_str()))
-                        .map(|mr| MrDagNode {
-                            id: mr.id.as_str().to_owned(),
-                            title: mr.title.as_str().to_owned(),
-                        })
-                        .collect()
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let edges: Vec<MrDagEdge> = plan
-        .mrs
-        .iter()
-        .flat_map(|mr| {
-            mr.needs.iter().map(move |need| MrDagEdge {
-                from: need.as_str().to_owned(),
-                to: mr.id.as_str().to_owned(),
-            })
-        })
-        .collect();
-    MrDagView { waves, edges }
 }
 
 // --- Evidence helpers ----------------------------------------------------------
@@ -1250,64 +1479,53 @@ fn to_markdown(plan: &PlanPresentation) -> String {
 
     md_orientation(&mut out, plan);
     md_sections(&mut out, plan);
-
-    if !plan.evidence_limitations.is_empty() {
-        md_section(&mut out, "Evidence limitations");
-        for limitation in &plan.evidence_limitations {
-            let _ = writeln!(
-                out,
-                "- {}: {}",
-                limitation.source,
-                autocode(&limitation.detail)
-            );
-        }
-        out.push('\n');
-    }
-
-    md_evidence_map(&mut out, plan);
-    md_changed_symbols(&mut out, plan);
-    md_call_graph(&mut out, plan);
-
-    if !plan.unresolved_facts.is_empty() {
-        md_section(&mut out, "Unresolved facts and remedies");
-        for fact in &plan.unresolved_facts {
-            let _ = writeln!(out, "- **Fact: {}**", autocode(&fact.question));
-            let _ = writeln!(out, "  {} · remedy: {}", fact.id, fact.remedy);
-        }
-        out.push('\n');
-    }
-
-    md_impact(&mut out, plan);
-
-    if !plan.decisions.is_empty() {
-        md_section(&mut out, "Decisions");
-        for decision in &plan.decisions {
-            let _ = writeln!(out, "- **Decision: {}**", decision.question);
-            let _ = writeln!(out, "  {}", decision.answer);
-            if !decision.consequences.is_empty() {
-                let _ = writeln!(out, "  Consequences: {}", decision.consequences.join("; "));
-            }
-            let _ = writeln!(
-                out,
-                "  _{} · {}_",
-                decision_owner_label(decision.owner),
-                decision.id
-            );
-            if !decision.ruled_out.is_empty() {
-                out.push_str("  - Considered and rejected:\n");
-                for entry in &decision.ruled_out {
-                    let _ = writeln!(out, "    - {}", entry.alternative);
-                    let _ = writeln!(out, "      {}", entry.reason);
-                }
-            }
-        }
-        out.push('\n');
-    }
-
+    md_decisions(&mut out, plan);
     md_delivery(&mut out, plan);
-    md_timeline(&mut out, plan);
-    md_discussion(&mut out, plan);
+    md_unresolved(&mut out, plan);
+    if let Some(appendix) = &plan.appendix {
+        md_appendix(&mut out, plan, appendix);
+    }
     out
+}
+
+fn md_decisions(out: &mut String, plan: &PlanPresentation) {
+    if plan.decisions.is_empty() {
+        return;
+    }
+    md_section(out, "Decisions");
+    for decision in &plan.decisions {
+        let _ = writeln!(out, "- **Decision: {}**", decision.question);
+        let _ = writeln!(out, "  {}", decision.answer);
+        if !decision.consequences.is_empty() {
+            let _ = writeln!(out, "  Consequences: {}", decision.consequences.join("; "));
+        }
+        let _ = writeln!(
+            out,
+            "  _{} · {}_",
+            decision_owner_label(decision.owner),
+            decision.id
+        );
+        if !decision.ruled_out.is_empty() {
+            out.push_str("  - Considered and rejected:\n");
+            for entry in &decision.ruled_out {
+                let _ = writeln!(out, "    - {}", entry.alternative);
+                let _ = writeln!(out, "      {}", entry.reason);
+            }
+        }
+    }
+    out.push('\n');
+}
+
+fn md_unresolved(out: &mut String, plan: &PlanPresentation) {
+    if plan.unresolved_facts.is_empty() {
+        return;
+    }
+    md_section(out, "Unresolved facts and remedies");
+    for fact in &plan.unresolved_facts {
+        let _ = writeln!(out, "- **Fact: {}**", autocode(&fact.question));
+        let _ = writeln!(out, "  {} · remedy: {}", fact.id, fact.remedy);
+    }
+    out.push('\n');
 }
 
 const fn decision_owner_label(owner: DecisionOwner) -> &'static str {
@@ -1347,36 +1565,81 @@ fn md_accepted(out: &mut String, plan: &PlanPresentation) {
     out.push('\n');
 }
 
-fn md_evidence_map(out: &mut String, plan: &PlanPresentation) {
-    if plan.evidence_claim_map.is_empty() {
+/// The one `Appendix` heading after the authored plan, each derived figure a
+/// subsection under it.
+fn md_appendix(out: &mut String, plan: &PlanPresentation, appendix: &AppendixView) {
+    if appendix.is_empty() {
         return;
     }
-    md_section(out, "Evidence map");
-    for row in &plan.evidence_claim_map {
+    md_section(out, "Appendix");
+    md_evidence_map(out, &appendix.evidence_map);
+    md_impact(out, &appendix.impact);
+    md_changed_symbols(out, &appendix.changed_symbols);
+    md_call_graph(out, &appendix.call_graph);
+    md_timeline(out, &appendix.timeline);
+    md_discussion(out, plan, &appendix.discussion);
+}
+
+fn md_evidence_map(out: &mut String, map: &EvidenceMapView) {
+    if map.is_empty() {
+        return;
+    }
+    md_subsection(out, "Evidence map");
+    for row in &map.claims {
         let evidence = row
             .evidence
             .iter()
             .map(|item| {
+                let mut label = format!("{} ({}", item.id, item.method);
                 if item.sampled {
-                    format!("{} ({}, sampled)", item.id, item.method)
-                } else {
-                    format!("{} ({})", item.id, item.method)
+                    label.push_str(", sampled");
                 }
+                if item.limited {
+                    label.push_str(", limited");
+                }
+                label.push(')');
+                label
             })
             .collect::<Vec<_>>()
             .join(", ");
         let _ = writeln!(out, "- **Claim: {}**", autocode(&row.statement));
         let _ = writeln!(out, "  {} · {}", row.claim, evidence);
+        if let Some(limitation) = &row.limitation {
+            let _ = writeln!(out, "  Limited: {}", autocode(limitation));
+        }
+    }
+    if !map.notes.is_empty() {
+        out.push_str("\nEvidence limitations:\n");
+        for note in &map.notes {
+            let _ = writeln!(
+                out,
+                "- {} ({}): {}",
+                note.id,
+                note.method,
+                autocode(&note.detail)
+            );
+        }
+    }
+    if !map.tool_failures.is_empty() {
+        out.push_str("\nTool failures:\n");
+        for failure in &map.tool_failures {
+            let _ = writeln!(
+                out,
+                "- approved tool {} failed: {}",
+                failure.proposal,
+                autocode(&failure.reason)
+            );
+        }
     }
     out.push('\n');
 }
 
-fn md_changed_symbols(out: &mut String, plan: &PlanPresentation) {
-    if plan.changed_symbols.is_empty() {
+fn md_changed_symbols(out: &mut String, symbols: &[SymbolTreeNode]) {
+    if symbols.is_empty() {
         return;
     }
-    md_section(out, "Changed symbols");
-    for node in &plan.changed_symbols {
+    md_subsection(out, "Changed symbols");
+    for node in symbols {
         let indent = "  ".repeat(node.depth);
         match node.change {
             Some(change) => {
@@ -1390,27 +1653,36 @@ fn md_changed_symbols(out: &mut String, plan: &PlanPresentation) {
     out.push('\n');
 }
 
-fn md_call_graph(out: &mut String, plan: &PlanPresentation) {
-    if plan.call_graph.is_empty() {
+fn md_call_graph(out: &mut String, edges: &[CallEdgeRow]) {
+    if edges.is_empty() {
         return;
     }
-    md_section(out, "As-is call graph");
-    for edge in &plan.call_graph {
+    md_subsection(out, "As-is call graph");
+    for edge in edges {
         let _ = writeln!(out, "- {} → {}", edge.caller, edge.callee);
     }
     out.push('\n');
 }
 
-fn md_timeline(out: &mut String, plan: &PlanPresentation) {
-    if plan.timeline.is_empty() {
+fn md_timeline(out: &mut String, timeline: &[TimelineEntry]) {
+    if timeline.is_empty() {
         return;
     }
-    let _ = writeln!(
+    md_subsection(
         out,
-        "<details><summary>Review timeline — {}</summary>\n",
-        timeline_digest(&plan.timeline)
+        &format!("Review timeline — {}", timeline_digest(timeline)),
     );
-    for wave in &plan.timeline {
+    for entry in timeline {
+        let wave = match entry {
+            TimelineEntry::Marker(marker) => {
+                let _ = writeln!(out, "- **{}** — {}", marker.label, autocode(&marker.detail));
+                for item in &marker.items {
+                    let _ = writeln!(out, "  - {item}");
+                }
+                continue;
+            }
+            TimelineEntry::Wave(wave) => wave,
+        };
         let clear = wave.findings.is_empty()
             && !wave.lanes.iter().any(|lane| lane.contested)
             && !wave.consumers.iter().any(|consumer| consumer.contested);
@@ -1439,34 +1711,36 @@ fn md_timeline(out: &mut String, plan: &PlanPresentation) {
             out.push_str("  - all lanes and consumers clear\n");
         }
     }
-    out.push_str("\n</details>\n\n");
+    out.push('\n');
 }
 
-fn md_impact(out: &mut String, plan: &PlanPresentation) {
-    if plan.impact_areas.is_empty() && plan.coverage.is_empty() {
+fn md_impact(out: &mut String, impact: &ImpactView) {
+    if impact.is_empty() {
         return;
     }
-    md_section(out, "Impact areas");
-    for area in &plan.impact_areas {
+    md_subsection(out, "Impact areas");
+    for area in &impact.rows {
+        let lanes = if area.lanes.is_empty() {
+            String::new()
+        } else {
+            format!(" · lanes: {}", area.lanes.join(", "))
+        };
         let _ = writeln!(
             out,
-            "- **{}** [{}]: {} (refs: {})",
+            "- **{}** [{}]: {} (refs: {}{lanes})",
             autocode(&area.subject),
             impact_state_md(area),
             autocode(&area.rationale),
             area.references.join(", ")
         );
     }
-    if !plan.coverage.is_empty() {
-        out.push_str("\nBlast-radius coverage:\n");
-        for row in &plan.coverage {
-            let verdict = if row.covered {
-                "covered"
-            } else {
-                "not considered"
-            };
-            let _ = writeln!(out, "- {} — {}: {}", row.lane, verdict, row.detail);
-        }
+    for group in &impact.set_aside {
+        let _ = writeln!(
+            out,
+            "- Not considered — {}: {}",
+            group.lanes.join(", "),
+            autocode(&group.reason)
+        );
     }
     out.push('\n');
 }
@@ -1503,30 +1777,44 @@ fn md_delivery(out: &mut String, plan: &PlanPresentation) {
             );
         }
     }
-    if !plan.delivery.mrs.is_empty() {
+    if !plan.delivery.stages.is_empty() {
         out.push_str("Merge requests:\n");
-        for mr in &plan.delivery.mrs {
-            let _ = writeln!(out, "- **MR: {}**", autocode(&mr.title));
-            let _ = writeln!(out, "  {}", autocode(&mr.standalone));
-            let _ = writeln!(
-                out,
-                "  {} · needs: {} · satisfies: {}",
-                mr.id,
-                join_or_dash(mr.needs.iter().map(String::as_str)),
-                join_or_dash(mr.satisfies.iter().map(String::as_str))
-            );
+        let staged = plan.delivery.stages.len() > 1;
+        for (index, stage) in plan.delivery.stages.iter().enumerate() {
+            if staged {
+                let _ = writeln!(out, "- Stage {}{}", index + 1, parallel_note(stage.len()));
+            }
+            let indent = if staged { "  " } else { "" };
+            for mr in stage {
+                let _ = writeln!(out, "{indent}- **MR: {}**", autocode(&mr.title));
+                let _ = writeln!(out, "{indent}  {}", autocode(&mr.standalone));
+                let _ = writeln!(
+                    out,
+                    "{indent}  {} · needs: {} · satisfies: {}",
+                    mr.id,
+                    join_or_dash(mr.needs.iter().map(String::as_str)),
+                    join_or_dash(mr.satisfies.iter().map(String::as_str))
+                );
+            }
         }
     }
     out.push('\n');
 }
 
-fn md_discussion(out: &mut String, plan: &PlanPresentation) {
-    let items = resolved(&plan.comments);
-    if items.is_empty() {
+fn parallel_note(count: usize) -> String {
+    if count > 1 {
+        format!(" · {count} in parallel")
+    } else {
+        String::new()
+    }
+}
+
+fn md_discussion(out: &mut String, plan: &PlanPresentation, discussion: &[Comment]) {
+    if discussion.is_empty() {
         return;
     }
-    md_section(out, "Discussion");
-    for comment in &items {
+    md_subsection(out, "Discussion");
+    for comment in discussion {
         let _ = writeln!(
             out,
             "- {} — {}",
@@ -1547,6 +1835,10 @@ fn md_heading(out: &mut String, plan: &PlanPresentation) {
 
 fn md_section(out: &mut String, title: &str) {
     let _ = writeln!(out, "## {title}\n");
+}
+
+fn md_subsection(out: &mut String, title: &str) {
+    let _ = writeln!(out, "### {title}\n");
 }
 
 fn md_orientation(out: &mut String, plan: &PlanPresentation) {
@@ -1685,14 +1977,12 @@ fn to_html(plan: &PlanPresentation) -> String {
                     }
                     (orientation_section(plan))
                     (narrative_sections(plan))
-                    (evidence_map_section(plan))
-                    (changed_symbol_section(plan))
-                    (call_graph_section(plan))
                     (decision_section(plan))
-                    (impact_section(plan))
                     (delivery_section(plan))
-                    (timeline_section(plan))
-                    (reference_rail(plan))
+                    (unresolved_section(plan))
+                    @if let Some(appendix) = &plan.appendix {
+                        (appendix_section(plan, appendix))
+                    }
                 }
             }
         }
@@ -1730,7 +2020,7 @@ fn accepted_banner_markup(plan: &PlanPresentation) -> Markup {
 fn orientation_section(plan: &PlanPresentation) -> Markup {
     markup! {
         @if let Some(orientation) = &plan.orientation {
-            (section_wrap("Orientation", Fold::Open, markup! {
+            (section_wrap("Orientation", markup! {
                 p class="prose" { (inline_markup(&orientation.placement)) }
                 @if !orientation.touched_flows.is_empty() {
                     h3 { "Touched flows" }
@@ -1769,7 +2059,7 @@ fn narrative_sections(plan: &PlanPresentation) -> Markup {
                 })
                 .collect();
             @if !visible.is_empty() {
-                (section_wrap(&section.heading, Fold::Open, markup! {
+                (section_wrap(&section.heading, markup! {
                     @for &(block_index, block) in &visible {
                         @let anchor = BlockAnchor::new(cast_index(section_index), cast_index(block_index));
                         (block_markup(block, anchor, &open_on(&plan.comments, anchor)))
@@ -1817,29 +2107,84 @@ fn block_markup(block: &BlockView, anchor: BlockAnchor, open: &[&Comment]) -> Ma
     }
 }
 
-fn evidence_map_section(plan: &PlanPresentation) -> Markup {
-    section_when_nonempty(
-        "Evidence map",
-        Fold::Open,
-        &plan.evidence_claim_map,
-        markup! {
-            table {
-                colgroup { col style="width:62%"; col style="width:38%"; }
-                thead { tr { th { "Claim" } th { "Evidence" } } }
-                tbody {
-                    @for row in &plan.evidence_claim_map {
-                        tr {
-                            td {
-                                div class="item-lead" { strong { (inline_markup(&row.statement)) } }
-                                small class="item-cap" { (id_markup(&row.claim)) }
-                            }
-                            td {
-                                @for (index, item) in row.evidence.iter().enumerate() {
-                                    @if index > 0 { " " }
-                                    span class="pill mark-keep" {
-                                        code { (item.id) } " · " (item.method)
-                                        @if item.sampled {
-                                            " · " span class="pill mark-chg" { "sampled" }
+/// One derived figure inside the appendix.
+struct AppendixPart {
+    title: &'static str,
+    body: Markup,
+}
+
+/// The single collapsed disclosure after the authored plan, holding every
+/// derived figure; its summary names the parts inside.
+fn appendix_section(plan: &PlanPresentation, appendix: &AppendixView) -> Markup {
+    let parts: Vec<AppendixPart> = [
+        evidence_map_part(&appendix.evidence_map),
+        impact_part(&appendix.impact),
+        changed_symbol_part(&appendix.changed_symbols),
+        call_graph_part(&appendix.call_graph),
+        timeline_part(&appendix.timeline),
+        discussion_part(plan, &appendix.discussion),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if parts.is_empty() {
+        return PreEscaped(String::new());
+    }
+    let digest = parts
+        .iter()
+        .map(|part| part.title)
+        .collect::<Vec<_>>()
+        .join(" · ");
+    markup! {
+        details class="section secondary appendix" {
+            summary {
+                h2 { "Appendix" }
+                span class="appendix-digest" { (digest) }
+            }
+            div class="body" {
+                @for part in &parts {
+                    section class="appendix-part" {
+                        h3 { (part.title) }
+                        (part.body)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn evidence_map_part(map: &EvidenceMapView) -> Option<AppendixPart> {
+    (!map.is_empty()).then(|| AppendixPart {
+        title: "Evidence map",
+        body: markup! {
+            @if !map.claims.is_empty() {
+                table {
+                    colgroup { col style="width:62%"; col style="width:38%"; }
+                    thead { tr { th { "Claim" } th { "Evidence" } } }
+                    tbody {
+                        @for row in &map.claims {
+                            tr {
+                                td {
+                                    div class="item-lead" { strong { (inline_markup(&row.statement)) } }
+                                    small class="item-cap" { (id_markup(&row.claim)) }
+                                    @if let Some(limitation) = &row.limitation {
+                                        small class="item-cap" {
+                                            span class="pill mark-chg" { "limited" }
+                                            " " (inline_markup(limitation))
+                                        }
+                                    }
+                                }
+                                td {
+                                    @for (index, item) in row.evidence.iter().enumerate() {
+                                        @if index > 0 { " " }
+                                        span class="pill mark-keep" {
+                                            code { (item.id) } " · " (item.method)
+                                            @if item.sampled {
+                                                " · " span class="pill mark-chg" { "sampled" }
+                                            }
+                                            @if item.limited {
+                                                " · " span class="pill mark-chg" { "limited" }
+                                            }
                                         }
                                     }
                                 }
@@ -1848,18 +2193,32 @@ fn evidence_map_section(plan: &PlanPresentation) -> Markup {
                     }
                 }
             }
+            @if !map.notes.is_empty() {
+                p { strong { "Evidence limitations" } }
+                ul {
+                    @for note in &map.notes {
+                        li { (id_markup(&note.id)) " (" (note.method) "): " (inline_markup(&note.detail)) }
+                    }
+                }
+            }
+            @if !map.tool_failures.is_empty() {
+                p { strong { "Tool failures" } }
+                ul {
+                    @for failure in &map.tool_failures {
+                        li { "approved tool " (id_markup(&failure.proposal)) " failed: " (inline_markup(&failure.reason)) }
+                    }
+                }
+            }
         },
-    )
+    })
 }
 
-fn changed_symbol_section(plan: &PlanPresentation) -> Markup {
-    section_when_nonempty(
-        "Changed symbols",
-        Fold::Open,
-        &plan.changed_symbols,
-        markup! {
+fn changed_symbol_part(symbols: &[SymbolTreeNode]) -> Option<AppendixPart> {
+    (!symbols.is_empty()).then(|| AppendixPart {
+        title: "Changed symbols",
+        body: markup! {
             div class="d tree" {
-                @for node in &plan.changed_symbols {
+                @for node in symbols {
                     div class="tre-row" style=(format!("padding-left:{}rem", node.depth)) {
                         @match node.change {
                             Some(change) => {
@@ -1874,22 +2233,20 @@ fn changed_symbol_section(plan: &PlanPresentation) -> Markup {
                 }
             }
         },
-    )
+    })
 }
 
-fn call_graph_section(plan: &PlanPresentation) -> Markup {
-    section_when_nonempty(
-        "As-is call graph",
-        Fold::Open,
-        &plan.call_graph,
-        markup! {
+fn call_graph_part(edges: &[CallEdgeRow]) -> Option<AppendixPart> {
+    (!edges.is_empty()).then(|| AppendixPart {
+        title: "As-is call graph",
+        body: markup! {
             ul class="dg-crossings" {
-                @for edge in &plan.call_graph {
+                @for edge in edges {
                     li { code { (edge.caller) } " → " code { (edge.callee) } }
                 }
             }
         },
-    )
+    })
 }
 
 /// A short outcome token for the timeline digest: `fixed (2 regions)` → `fixed`,
@@ -1903,13 +2260,31 @@ fn short_outcome(outcome: &str) -> String {
 /// The one-line digest folded into the timeline `<summary>`: wave count, findings
 /// by severity (majors/blocking carrying their shared outcome), and the count of
 /// lanes and consumers that came back clear — or the exceptions when they did not.
-fn timeline_digest(waves: &[TimelineWave]) -> String {
+fn timeline_digest(entries: &[TimelineEntry]) -> String {
+    let waves: Vec<&TimelineWave> = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            TimelineEntry::Wave(wave) => Some(wave),
+            TimelineEntry::Marker(_) => None,
+        })
+        .collect();
+    let markers = entries.len() - waves.len();
     let mut parts: Vec<String> = Vec::new();
     parts.push(format!(
         "{} {}",
         waves.len(),
         if waves.len() == 1 { "wave" } else { "waves" }
     ));
+    if markers > 0 {
+        parts.push(format!(
+            "{markers} {}",
+            if markers == 1 {
+                "revision/reopen"
+            } else {
+                "revisions/reopens"
+            }
+        ));
+    }
 
     for severity in [Severity::Blocking, Severity::Major, Severity::Advisory] {
         let matching: Vec<&TimelineFinding> = waves
@@ -1941,7 +2316,7 @@ fn timeline_digest(waves: &[TimelineWave]) -> String {
     let mut consumers: BTreeSet<&str> = BTreeSet::new();
     let mut contested_lanes = 0usize;
     let mut missing_consumers = 0usize;
-    for wave in waves {
+    for wave in &waves {
         for lane in &wave.lanes {
             lanes.insert(lane.label.as_str());
             if lane.contested {
@@ -1976,153 +2351,113 @@ fn timeline_digest(waves: &[TimelineWave]) -> String {
     parts.join(" · ")
 }
 
-/// The retrospective review timeline, folded by default (design §9). The digest
-/// carries the all-clear lane/consumer counts; the expanded body spells out only
-/// the findings and the exceptions (a contested lane, a missing consumer).
-fn timeline_section(plan: &PlanPresentation) -> Markup {
-    if plan.timeline.is_empty() {
-        return PreEscaped(String::new());
-    }
-    markup! {
-        details class="section secondary timeline-fold" {
-            summary {
-                h2 { "Review timeline" }
-                span class="tl-digest" { (timeline_digest(&plan.timeline)) }
-            }
-            div class="body" {
-                div class="timeline" {
-                    @for wave in &plan.timeline {
-                        @let clear = wave.findings.is_empty()
-                            && !wave.lanes.iter().any(|lane| lane.contested)
-                            && !wave.consumers.iter().any(|consumer| consumer.contested);
-                        div class="tl-step" {
+/// The retrospective review timeline (design §9). The digest carries the
+/// all-clear lane/consumer counts; the body spells out only the findings and
+/// the exceptions (a contested lane, a missing consumer).
+fn timeline_part(timeline: &[TimelineEntry]) -> Option<AppendixPart> {
+    (!timeline.is_empty()).then(|| AppendixPart {
+        title: "Review timeline",
+        body: markup! {
+            p class="tl-digest" { (timeline_digest(timeline)) }
+            div class="timeline" {
+                @for entry in timeline {
+                    @match entry {
+                    TimelineEntry::Marker(marker) => {
+                        div class="tl-step tl-marker" {
                             span class="tl-dot" {}
                             div class="tl-body" {
-                                div class="tl-n" { "Wave " (wave.wave) }
-                                div class="tl-w" { (wave.reviews.join(", ")) }
-                                @for finding in &wave.findings {
-                                    div class="tl-rb" {
-                                        p class="item-lead" {
-                                            strong {
-                                                span class=(severity_class(finding.severity)) { (severity_label(finding.severity)) }
-                                                " " (inline_markup(&finding.statement))
-                                            }
-                                        }
-                                        small class="item-cap" { (id_markup(&finding.id)) " · " (finding.outcome) }
-                                    }
-                                }
-                                @for lane in wave.lanes.iter().filter(|lane| lane.contested) {
-                                    div class="tl-rb" {
-                                        span class="pill mark-del" { "lane " (lane.label) }
-                                        " " (lane.verdict)
-                                    }
-                                }
-                                @for consumer in wave.consumers.iter().filter(|consumer| consumer.contested) {
-                                    div class="tl-rb" {
-                                        span class="pill mark-del" { "consumer " (consumer.label) }
-                                        " " (consumer.verdict)
-                                    }
-                                }
-                                @if clear {
-                                    div class="tl-clear" { "All lanes and consumers clear." }
+                                div class="tl-n" { (marker.label) }
+                                div class="tl-w" { (inline_markup(&marker.detail)) }
+                                @for item in &marker.items {
+                                    div class="tl-rb" { (inline_markup(item)) }
                                 }
                             }
                         }
                     }
+                    TimelineEntry::Wave(wave) => {
+                    @let clear = wave.findings.is_empty()
+                        && !wave.lanes.iter().any(|lane| lane.contested)
+                        && !wave.consumers.iter().any(|consumer| consumer.contested);
+                    div class="tl-step" {
+                        span class="tl-dot" {}
+                        div class="tl-body" {
+                            div class="tl-n" { "Wave " (wave.wave) }
+                            div class="tl-w" { (wave.reviews.join(", ")) }
+                            @for finding in &wave.findings {
+                                div class="tl-rb" {
+                                    p class="item-lead" {
+                                        strong {
+                                            span class=(severity_class(finding.severity)) { (severity_label(finding.severity)) }
+                                            " " (inline_markup(&finding.statement))
+                                        }
+                                    }
+                                    small class="item-cap" { (id_markup(&finding.id)) " · " (finding.outcome) }
+                                }
+                            }
+                            @for lane in wave.lanes.iter().filter(|lane| lane.contested) {
+                                div class="tl-rb" {
+                                    span class="pill mark-del" { "lane " (lane.label) }
+                                    " " (lane.verdict)
+                                }
+                            }
+                            @for consumer in wave.consumers.iter().filter(|consumer| consumer.contested) {
+                                div class="tl-rb" {
+                                    span class="pill mark-del" { "consumer " (consumer.label) }
+                                    " " (consumer.verdict)
+                                }
+                            }
+                            @if clear {
+                                div class="tl-clear" { "All lanes and consumers clear." }
+                            }
+                        }
+                    }
+                    }
+                    }
                 }
             }
-        }
-    }
+        },
+    })
 }
 
-#[derive(Clone, Copy)]
-enum Fold {
-    Open,
-    Folded,
-}
-
-fn section_wrap(heading: &str, fold: Fold, body: Markup) -> Markup {
+fn section_wrap(heading: &str, body: Markup) -> Markup {
     // Consume `body` up front (it is owned, not borrowed) so the parameter earns
     // its by-value signature; re-wrapping the already-escaped string renders
     // identically to splicing the `Markup` directly.
     let body = PreEscaped(body.into_string());
-    match fold {
-        Fold::Open => markup! {
-            section class="section" {
-                h2 { (heading) }
-                (body)
-            }
-        },
-        Fold::Folded => markup! {
-            details class="section secondary" {
-                summary { h2 { (heading) } }
-                div class="body" { (body) }
-            }
-        },
+    markup! {
+        section class="section" {
+            h2 { (heading) }
+            (body)
+        }
     }
 }
 
-fn section_when_nonempty<T>(heading: &str, fold: Fold, items: &[T], body: Markup) -> Markup {
+fn section_when_nonempty<T>(heading: &str, items: &[T], body: Markup) -> Markup {
     if items.is_empty() {
         PreEscaped(String::new())
     } else {
-        section_wrap(heading, fold, body)
+        section_wrap(heading, body)
     }
 }
 
-fn discussion_section(plan: &PlanPresentation) -> Markup {
-    let items = resolved(&plan.comments);
-    markup! {
-        @if !items.is_empty() {
-            (section_wrap("Discussion", Fold::Folded, markup! {
-                p class="prose" { "Resolved review comments." }
-                @for comment in &items {
-                    div class="disc" {
-                        div class="disc-src" { (discussion_source(plan, comment.anchor)) }
-                        blockquote class="revy-comment" { (comment.text.as_str()) }
-                    }
-                }
-            }))
-        }
-    }
-}
-
-fn reference_rail(plan: &PlanPresentation) -> Markup {
-    let folded = [
-        limitation_section(plan),
-        unresolved_section(plan),
-        discussion_section(plan),
-    ];
-    let has_content = folded.iter().any(|section| !section.0.is_empty());
-    markup! {
-        @if has_content {
-            h2 class="rail" { "Reference" }
-        }
-        @for section in &folded {
-            (section)
-        }
-    }
-}
-
-fn limitation_section(plan: &PlanPresentation) -> Markup {
-    section_when_nonempty(
-        "Evidence limitations",
-        Fold::Folded,
-        &plan.evidence_limitations,
-        markup! {
-            ul {
-                @for limitation in &plan.evidence_limitations {
-                    li { (limitation.source) ": " (inline_markup(&limitation.detail)) }
+fn discussion_part(plan: &PlanPresentation, discussion: &[Comment]) -> Option<AppendixPart> {
+    (!discussion.is_empty()).then(|| AppendixPart {
+        title: "Discussion",
+        body: markup! {
+            p { "Resolved review comments." }
+            @for comment in discussion {
+                div class="disc" {
+                    div class="disc-src" { (discussion_source(plan, comment.anchor)) }
+                    blockquote class="revy-comment" { (comment.text.as_str()) }
                 }
             }
         },
-    )
+    })
 }
 
 fn unresolved_section(plan: &PlanPresentation) -> Markup {
     section_when_nonempty(
         "Unresolved facts and remedies",
-        Fold::Folded,
         &plan.unresolved_facts,
         markup! {
             ul class="lead-list" {
@@ -2137,71 +2472,70 @@ fn unresolved_section(plan: &PlanPresentation) -> Markup {
     )
 }
 
-fn coverage_strip(plan: &PlanPresentation) -> Markup {
-    markup! {
-        @if !plan.coverage.is_empty() {
-            div class="coverage" {
-                @for row in &plan.coverage {
-                    div class=(if row.covered { "cov cov-yes" } else { "cov cov-no" })
-                        title=(if row.covered { "covered" } else { "not considered" }) {
-                        span class="cov-mark" aria-hidden="true" { (if row.covered { "✓" } else { "—" }) }
-                        span class="cov-lane" { (row.lane) }
-                        span class="cov-detail" { (inline_markup(&row.detail)) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn impact_section(plan: &PlanPresentation) -> Markup {
-    if plan.impact_areas.is_empty() && plan.coverage.is_empty() {
-        return PreEscaped(String::new());
-    }
-    section_wrap(
-        "Impact areas",
-        Fold::Open,
-        markup! {
-            (coverage_strip(plan))
-            @if !plan.impact_areas.is_empty() {
-            table {
-                thead { tr { th { "Area" } th { "State" } th { "Rationale" } th { "References" } } }
-                tbody {
-                    @for area in &plan.impact_areas {
-                        tr {
-                            td { strong { (inline_markup(&area.subject)) } }
-                            td {
-                                span class=(impact_state_class(area.state)) {
-                                    (impact_state_label(area.state))
-                                }
-                                @if let Some(shape) = area.shape {
-                                    " "
-                                    span class=(affected_shape_class(shape)) {
-                                        (affected_shape_label(shape))
+fn impact_part(impact: &ImpactView) -> Option<AppendixPart> {
+    (!impact.is_empty()).then(|| AppendixPart {
+        title: "Impact areas",
+        body: markup! {
+            @if !impact.rows.is_empty() {
+                table {
+                    thead { tr { th { "Area" } th { "State" } th { "Rationale" } th { "References" } th { "Lanes" } } }
+                    tbody {
+                        @for area in &impact.rows {
+                            tr {
+                                td { strong { (inline_markup(&area.subject)) } }
+                                td {
+                                    span class=(impact_state_class(area.state)) {
+                                        (impact_state_label(area.state))
+                                    }
+                                    @if let Some(shape) = area.shape {
+                                        " "
+                                        span class=(affected_shape_class(shape)) {
+                                            (affected_shape_label(shape))
+                                        }
                                     }
                                 }
-                            }
-                            td { (inline_markup(&area.rationale)) }
-                            td {
-                                @if area.references_are_ids {
-                                    (code_join(area.references.iter().map(String::as_str)))
-                                } @else {
-                                    (area.references.join(", "))
+                                td { (inline_markup(&area.rationale)) }
+                                td {
+                                    @if area.references_are_ids {
+                                        (code_join(area.references.iter().map(String::as_str)))
+                                    } @else {
+                                        (area.references.join(", "))
+                                    }
+                                }
+                                td {
+                                    @if area.lanes.is_empty() {
+                                        (dash())
+                                    } @else {
+                                        @for lane in &area.lanes {
+                                            span class="pill lane-covered" { (lane) } " "
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+            @if !impact.set_aside.is_empty() {
+                ul class="set-aside" {
+                    @for group in &impact.set_aside {
+                        li {
+                            "Not considered — "
+                            @for lane in &group.lanes {
+                                span class="pill imp-na" { (lane) } " "
+                            }
+                            span class="set-aside-why" { (inline_markup(&group.reason)) }
+                        }
+                    }
+                }
             }
         },
-    )
+    })
 }
 
 fn decision_section(plan: &PlanPresentation) -> Markup {
     section_when_nonempty(
         "Decisions",
-        Fold::Open,
         &plan.decisions,
         markup! {
             ul class="lead-list decisions" {
@@ -2246,7 +2580,6 @@ fn delivery_section(plan: &PlanPresentation) -> Markup {
     }
     section_wrap(
         "Delivery",
-        Fold::Open,
         markup! {
             @if !plan.delivery.requirements.is_empty() {
                 h3 { "Requirements" }
@@ -2278,62 +2611,29 @@ fn delivery_section(plan: &PlanPresentation) -> Markup {
                     }
                 }
             }
-            @if !plan.delivery.mrs.is_empty() {
+            @if !plan.delivery.stages.is_empty() {
                 h3 { "Merge requests" }
-                ul class="lead-list" {
-                    @for mr in &plan.delivery.mrs {
-                        li id=(format!("mr-{}", mr.id)) {
-                            p class="item-lead" { strong { "MR: " (inline_markup(&mr.title)) } }
-                            p class="item-body" { (inline_markup(&mr.standalone)) }
-                            small class="item-cap" {
-                                (id_markup(&mr.id)) " · needs: " (code_join_or_dash(&mr.needs))
-                                " · satisfies: " (code_join_or_dash(&mr.satisfies))
-                            }
-                        }
+                @let staged = plan.delivery.stages.len() > 1;
+                @for (index, stage) in plan.delivery.stages.iter().enumerate() {
+                    @if staged {
+                        p class="mr-stage" { "Stage " (index + 1) (parallel_note(stage.len())) }
                     }
-                }
-            }
-            @if !plan.delivery.mrs.is_empty() && !plan.authored_delivery_dag {
-                figure class="dg-figure" {
-                    figcaption { "Merge request dependency graph" }
-                    (mr_dag_markup(&plan.delivery.mr_dag))
-                }
-            }
-        },
-    )
-}
-
-fn mr_dag_markup(dag: &MrDagView) -> Markup {
-    markup! {
-        div class="d dag mr-dag" {
-            @for (index, wave) in dag.waves.iter().enumerate() {
-                div class="wv-stage" {
-                    span class="wv-dot" {}
-                    div class="wv-body" {
-                        div class="wv-h" {
-                            "stage " (index + 1)
-                            span class="wv-par" { (wave.len()) " in parallel" }
-                        }
-                        div class="wv-mrs" {
-                            @for node in wave {
-                                div class="mr mr-k-normal" {
-                                    a class="mr-id" href=(format!("#mr-{}", node.id)) { "MR:" (node.id) }
-                                    span class="mr-t" { (inline_markup(&node.title)) }
+                    ul class="lead-list" {
+                        @for mr in stage {
+                            li id=(format!("mr-{}", mr.id)) {
+                                p class="item-lead" { strong { "MR: " (inline_markup(&mr.title)) } }
+                                p class="item-body" { (inline_markup(&mr.standalone)) }
+                                small class="item-cap" {
+                                    (id_markup(&mr.id)) " · needs: " (code_join_or_dash(&mr.needs))
+                                    " · satisfies: " (code_join_or_dash(&mr.satisfies))
                                 }
                             }
                         }
                     }
                 }
             }
-        }
-        @if !dag.edges.is_empty() {
-            ul class="dg-crossings" {
-                @for edge in &dag.edges {
-                    li { "MR:" (id_markup(&edge.to)) " needs MR:" (id_markup(&edge.from)) }
-                }
-            }
-        }
-    }
+        },
+    )
 }
 
 fn discussion_source(plan: &PlanPresentation, anchor: BlockAnchor) -> String {

@@ -92,3 +92,23 @@ fn an_unknown_packet_kind_is_a_usage_error() {
         .code(2)
         .stderr(predicates::str::contains("unknown packet kind"));
 }
+
+#[test]
+fn an_id_in_a_packet_schema_publishes_the_slug_pattern() {
+    let schema = schema_output(&["schema", "--packet", "exploration"]);
+
+    assert_eq!(
+        schema["$defs"]["Claim"]["properties"]["id"]["pattern"],
+        "^[a-z0-9]+(-[a-z0-9]+)*$"
+    );
+}
+
+#[test]
+fn an_anchor_path_in_a_packet_schema_publishes_the_repository_qualified_path_pattern() {
+    let schema = schema_output(&["schema", "--packet", "exploration"]);
+
+    assert_eq!(
+        schema["$defs"]["Location"]["properties"]["path"]["pattern"],
+        revy_plan::primitives::REPO_PATH_PATTERN
+    );
+}

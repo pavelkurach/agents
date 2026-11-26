@@ -19,10 +19,11 @@
 use std::path::Path;
 
 use revy_plan::document::ParsedPlan;
-use revy_plan::model::review::Finding;
+use revy_plan::issues::Issues;
 use revy_plan::packet::{RawWorkResult, WorkKind};
-use revy_plan::render::{self, RenderContext, RenderedPlan};
-use revy_plan::state::{ReviewRound, RunState};
+use revy_plan::render::{self, Appendix, RenderContext, RenderedPlan};
+use revy_plan::runtime::{CheckError, Checkout, Checkouts, TranscriptStores};
+use revy_plan::state::RunState;
 use revy_plan::workflow::{ApplyError, apply, frontier};
 use serde_json::{Value, json};
 
@@ -329,11 +330,53 @@ pub fn step(plan: ParsedPlan, kind: WorkKind, result: &Value) -> Result<ParsedPl
     step_in(plan, kind, result, &scratch)
 }
 
+/// The live checkout the fixtures run against: unchanged since the fixture
+/// repository was captured, so omitted evidence targets are stamped.
+pub fn unmoved_checkout() -> Checkout {
+    Checkout::Captured(
+        serde_json::from_value(json!({ "revision": REVISION, "dirty_digest": DIGEST }))
+            .expect("identity parses"),
+    )
+}
+
+/// [`unmoved_checkout`] as the primary of an otherwise uncaptured set.
+pub fn unmoved_checkouts() -> Checkouts {
+    Checkouts::primary(unmoved_checkout())
+}
+
 pub fn step_in(
     plan: ParsedPlan,
     kind: WorkKind,
     result: &Value,
     transcripts: &Path,
+) -> Result<ParsedPlan, StepError> {
+    step_against(plan, kind, result, transcripts, &unmoved_checkout())
+}
+
+/// Decode, check, and apply against an explicit live primary checkout.
+pub fn step_against(
+    plan: ParsedPlan,
+    kind: WorkKind,
+    result: &Value,
+    transcripts: &Path,
+    checkout: &Checkout,
+) -> Result<ParsedPlan, StepError> {
+    step_against_all(
+        plan,
+        kind,
+        result,
+        transcripts,
+        &Checkouts::primary(checkout.clone()),
+    )
+}
+
+/// Decode, check, and apply against every repository's live checkout.
+pub fn step_against_all(
+    plan: ParsedPlan,
+    kind: WorkKind,
+    result: &Value,
+    transcripts: &Path,
+    checkouts: &Checkouts,
 ) -> Result<ParsedPlan, StepError> {
     let (key, raw): (_, RawWorkResult) = {
         let frontier = frontier(&plan);
@@ -345,21 +388,48 @@ pub fn step_in(
             .map_err(|error| StepError::Decode(error.to_string()))?;
         (packet.key().clone(), raw)
     };
-    let checked = revy_plan::runtime::check_result(&plan, transcripts, raw)
+    let checked = revy_plan::runtime::check_result(&plan, stores(transcripts), checkouts, raw)
         .map_err(|error| StepError::Check(error.to_string()))?;
     apply(plan, &key, checked).map_err(|error| StepError::Apply(Box::new(error)))
 }
 
 /// Decode `result` under the packet of `kind` and run only the runtime check,
-/// returning the typed [`CheckError`] — for the anchor, transcript-digest, and
-/// approved-tool guardrails (design §12) that `StepError::Check` erases to a
-/// string.
+/// returning every typed [`CheckError`] — for the anchor, transcript-digest,
+/// stamping, and approved-tool guardrails (design §12) that `StepError::Check`
+/// erases to a string.
 pub fn check_step(
     plan: &ParsedPlan,
     kind: WorkKind,
     result: &Value,
     transcripts: &Path,
-) -> Result<(), revy_plan::runtime::CheckError> {
+) -> Result<(), Issues<CheckError>> {
+    check_step_against(plan, kind, result, transcripts, &unmoved_checkout())
+}
+
+pub fn check_step_against(
+    plan: &ParsedPlan,
+    kind: WorkKind,
+    result: &Value,
+    transcripts: &Path,
+    checkout: &Checkout,
+) -> Result<(), Issues<CheckError>> {
+    check_step_against_all(
+        plan,
+        kind,
+        result,
+        transcripts,
+        &Checkouts::primary(checkout.clone()),
+    )
+}
+
+/// The runtime check alone, against every repository's live checkout.
+pub fn check_step_against_all(
+    plan: &ParsedPlan,
+    kind: WorkKind,
+    result: &Value,
+    transcripts: &Path,
+    checkouts: &Checkouts,
+) -> Result<(), Issues<CheckError>> {
     let frontier = frontier(plan);
     let packet = frontier
         .iter()
@@ -368,7 +438,18 @@ pub fn check_step(
     let raw = packet
         .decode_result(result.to_string().as_bytes())
         .expect("the result decodes");
-    revy_plan::runtime::check_result(plan, transcripts, raw).map(|_checked| ())
+    revy_plan::runtime::check_result(plan, stores(transcripts), checkouts, raw)
+        .map(|_checked| ())
+        .map_err(|rejection| rejection.into_parts().0)
+}
+
+/// The transcript stores a test checks against: `transcripts` as the plan's own
+/// directory, and an empty shared store beneath it.
+pub fn stores(transcripts: &Path) -> TranscriptStores<'_> {
+    TranscriptStores {
+        plan: transcripts,
+        shared: Path::new("/nonexistent-revy-shared-transcripts"),
+    }
 }
 
 /// The single most-common step: apply and unwrap.
@@ -391,23 +472,6 @@ fn state_label(state: &RunState) -> String {
     }
 }
 
-fn state_history(state: &RunState) -> &[ReviewRound] {
-    match state {
-        RunState::Reviewing { history, .. }
-        | RunState::Correcting { history, .. }
-        | RunState::AwaitingReviewDecision { history, .. }
-        | RunState::Final { history, .. } => history,
-        _ => &[],
-    }
-}
-
-fn state_accepted(state: &RunState) -> &[Finding] {
-    match state {
-        RunState::Final { accepted, .. } => accepted,
-        _ => &[],
-    }
-}
-
 /// Render a candidate-bearing document into Markdown and HTML through the real
 /// renderer, deriving the render context from the run state.
 pub fn render_document(document: &Value) -> RenderedPlan {
@@ -415,12 +479,6 @@ pub fn render_document(document: &Value) -> RenderedPlan {
     let state = plan.state();
     let candidate = state.candidate().expect("a candidate-bearing state");
     let label = state_label(state);
-    let context = RenderContext {
-        state_label: &label,
-        is_final: matches!(state, RunState::Final { .. }),
-        history: state_history(state),
-        accepted: state_accepted(state),
-        comments: state.comments(),
-    };
-    render::render(candidate, &context)
+    let context = RenderContext::for_state(state, &label);
+    render::render(candidate, &context, Appendix::Included)
 }
