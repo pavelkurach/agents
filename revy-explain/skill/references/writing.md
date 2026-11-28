@@ -53,7 +53,7 @@ Sections, in order:
   overview plus one diagram per stage.
 - Every edge label is a verb naming the mechanism: *calls `refresh()`*, *writes `state.json`*, *302 to
   `/login`*.
-- Mark meaning with the renderer's classes, the same names everywhere: `user`, `failure`, `focus` (the part a
+- Mark meaning with the renderer's classes, the same names everywhere: `user`, `ok` (a success path), `failure`, `focus` (the part a
   task or finding touches), and for a change under review `new`, `changed`, `removed`. In sequence diagrams
   `focus` is a `rect focus` block and a failure an `alt` branch.
 - In sequence and journey diagrams, the user is the first participant.
@@ -77,14 +77,15 @@ Sections, in order:
     ```` ```rust src/rules.rs:240-260 E7 ```` — lines of the explained revision;
   - sits beside the claim or diagram stage it backs;
   - is followed by notes keyed by cohesive chunk — a guard, a loop, a transformation, a call and its error
-    handling — `L250-L258 — retries once, then gives up`, or a single line when one line is the point, only where
+    handling — `L250-L258 — retries once, then gives up`, or a single line written as a range (`L247-L247`) when one line is the point, only where
     the chunk carries a decision, a non-obvious why, a contract, or a trap. Note lines follow the closing fence
     directly.
 - Every claim about code or behaviour cites its evidence id: *the session lives 24 h (E4)*. A diagram cites per
   edge — in the edge label, or an `Edges:` line beneath it (`Edges: A→B E3 · B→C E3, E4`) — or once in its
   caption when one id backs every edge.
 - **Every reference is a link**, so the page can make it clickable and hoverable:
-  - a section, diagram, or FAQ entry as a markdown link to its heading — `[Flows](#flows)`;
+  - a section or FAQ entry as a markdown link to its heading — `[Flows](#flows)`; a diagram by its caption —
+    `[the container view](#fig-containers-of-the-fix-loop)`;
   - code as `path:L245-L260` or `path::symbol`;
   - evidence by id (`E7`), a finding by its report id;
   - history as `commit <sha>`, `PR #<n>`, `issue #<n>`;
