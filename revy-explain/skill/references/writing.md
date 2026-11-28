@@ -29,7 +29,11 @@ Sections, in order:
 6. **Owner's view** — the SKILL.md § Owner's depth rows: why it is this way, what it guarantees and who enforces it,
    its limits, its intricacies, its trade-offs — each a table or diagram, each row cited.
 7. **Gaps** — each claim evidence could not settle, with what would settle it; `none` when there are none.
-8. **FAQ** — one `###` entry per follow-up, oldest first: the question verbatim as the heading, the answer shaped by
+8. **Separately** — issues noticed outside the subject's scope, one line each, so the body stays on its subject;
+   left out when there are none.
+9. **Start here** — the one first step to take with this knowledge, doable in minutes: a file to open, a
+   command to run, a question to settle with someone.
+10. **FAQ** — one `###` entry per follow-up, oldest first: the question verbatim as the heading, the answer shaped by
    these same rules, and what it changed in the body, if anything.
 
 ## Rules
@@ -57,6 +61,12 @@ Sections, in order:
   make it interactive.
 - Two or more items are a list; three or more items sharing fields are a table; a cell is a clause.
 - A sentence states one thing in under 20 words. A paragraph is at most two sentences.
+- Every line stands alone — a popup, a note, a table row read by itself still makes sense. Name the thing again
+  rather than pointing back to it.
+- A section's caption — or its first line, when no picture opens it — carries its point: a reader who reads only
+  those still gets the explanation.
+- Literal words. A hedge appears only where something is genuinely uncertain, and says what.
+- A problem is stated as its cause and its effect.
 - Name each case concretely: *expired token → `401`, redirect to `/login`*.
 - Show the user's side wherever there is one: what they see, click, wait for, and get on failure.
 - **Show the code a claim turns on** — the branch that decides a flow, the type that shapes data, the contract a
