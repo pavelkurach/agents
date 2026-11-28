@@ -5,53 +5,142 @@ description: Use for `/revy-plan`, technical specs, design requests, or implemen
 
 # revy-plan
 
-Drive the Rust `revy-plan` CLI. The CLI owns sequencing, work packets, result schemas, completion, subjects, blockers, and rendering. Never restate a schema or mandate it emits — run `revy-plan schema` and `revy-plan status` to read them.
+Produce a plan an implementer can execute without making a single design decision, and that introduces no bug
+or inconsistency: the full impact of the change traced, every requirement clarified, every claim about existing
+code backed by evidence. That bar is fixed, whatever the diff size. Your judgement sets the method and the
+effort — which tools, which reviewers, whether a patch needs re-review — so effort goes where risk lives.
 
-## 1. Locate capabilities
+The reader arrives as a newcomer to the system and must decide as its **owner**, with the full picture. Assume
+nothing they bring, and dive to the bottom of every part the change touches: the plan, and every question put to
+them, carries why the system is the way it is, what it guarantees, where it breaks, and what each choice trades
+away — never a default to accept on trust.
 
-Find, and name by purpose not product: the `revy-plan` binary on `PATH`; the external plan home, where plan.json lives outside the target checkout; filesystem and shell; an isolated review context; the evidence capabilities available now — code-intelligence (LSP, call hierarchy, references), runtime execution, structured and text search; and a delivery path, a reachable loopback URL or a file artifact. No tool product is mandatory. Reading source and grep are the universal floor every method falls back to.
+You coordinate; subagents do the tool-heavy work. Brief each one with only what its task needs — the goal, the
+paths of the files to read, the repo root, the capabilities, an output path — and require a short return: the
+result, how it was verified, risks, open questions. Tool output stays inside the subagent. Run independent
+subagents together.
 
-## 2. Init or resume
+## Files
 
-Inventory the capabilities, write them to `capabilities.json` (omit `repository`; the CLI stamps it), and `revy-plan init --target REPO --slug SLUG --capabilities capabilities.json` creates plan.json and makes it the target repository's current plan, so later commands run from inside that repository need no `--plan` (from elsewhere pass `--target REPO`); when the change reads or touches other repositories, declare each with `--repo ALIAS=PATH` (repeatable; a missed one is added later with `revy-plan reopen exploration --repo ALIAS=PATH`); resume by reading `revy-plan status`. The report must carry a proposal for every missing capability that can be added — a language server for an uncovered language, a code-graph tool — so it never looks complete by omission.
+Plan directory: `~/.revy-plan/plans/<slug>/`.
 
-## 3. Present, then wait
+| File | Holds | Reader |
+|---|---|---|
+| `plan.md` | the plan as it stands — only what is needed to act on it, diagrams included | the user, the implementer, reviewers |
+| `log.md` | how it was built, under these headings: `Status`, `Problem`, `Capabilities`, `Evidence`, `Decisions`, `Reviews`, `Patches` | reviewers (Problem, Capabilities, Evidence), you on resume |
+| `presentation.md` | how `plan.md` should look — reading order, visual form, emphasis | the renderer |
+| `scratch/` | subagent outputs, checkpoints, worktrees | subagents |
 
-When `status` is `awaiting_capability_approval`, present the capability report and wait for the user's exact approved decision; capability approval is required before any substantive exploration, and only the exact reply the packet emits is accepted. Otherwise `init` found nothing to approve (no proposals, code intelligence already available) and recorded `capability_approval: auto`: tell the user in one line that the setup was complete, and proceed. Only `init` approves automatically: a revised report (after the user's `request_revision`, whose instruction the `capability_report` packet shows as `revision_request`) or an exploration's capability proposal always goes back to the user.
+`Status` names the current step and what remains; update it after every step. When the plan directory already
+exists, confirm its `Problem` matches the request, then resume from `Status`.
 
-## 4. Execute each ready packet
+## Baseline
 
-```
-revy-plan status
-```
+The user may have run `revy-explain` on this task first. Before step 2, read the `Request` of each
+`~/.revy-explain/explanations/*/log.md`; when one matches the task, confirm it with the user and record its path
+in `Problem`. Its `explanation.md`, FAQ included, is the user's **baseline**: what they have already been shown.
+Without one, the baseline is empty.
 
-For every ready packet, treat its emitted mandate, subject, schema, and completion criteria as the whole instruction. Execute it with the best approved evidence method for its uncertainty; where that method is unavailable or fails, fall back to reading source and grep, and record the weaker evidence honestly. Proactively recommend a higher-value capability when its benefit, cost, side effects, and one limitation are worth stating — recommend, never require. Reviews are derived from the candidate — an integrated review always, plus a specialist for each impact shape that triggers one — not a fixed roster; each runs independently in a fresh, context-minimal subagent — never a full-history fork — briefed only with the candidate artifact path, the review packet, the repo root (and each declared repository's root), a checkpoint path, and findings-only instructions; the whole derived set dispatches concurrently. Reviewers return findings only — they never resolve, triage, or edit the plan; the integrated review owes three things: findings, a verdict for every `not_considered` lane, and a consumer check for every changed symbol. A correction is a `--patch` plus a `triage` that names every material finding.
+- Its claims and its `log.md` § `Evidence` are **leads**, never evidence: they point explorers where to look,
+  and each claim the plan relies on is proven afresh per [evidence.md](references/evidence.md).
+- When your evidence contradicts a baseline claim, tell the user in the next question batch — their
+  understanding rests on it.
+- Every question you put to the user, at any step, carries the context they lack: name the baseline section that
+  already covers it, and give inline only what the baseline leaves out — terse, plain English per
+  [writing.md](references/writing.md), a diagram when it has steps, naming the code it rests on.
 
-**Orchestrate; do not absorb.** The main session runs the CLI and the user's turns; each packet's tool-heavy work runs in a fresh, context-minimal subagent — **never a full-history fork**. Exploration (code-intelligence, search, reading source) and drafting (reasoning over that evidence) are the tool-heavy packets: dispatch each to its own subagent. The subagent runs the whole loop and returns only the packet's typed result and its symbol-citations — never raw tool output; hand it the packet's mandate, subject, schema, any input artifact **by path** (never paste evidence), and a checkpoint path it updates so another agent can resume. One subagent per packet, not per query, so a code-intelligence server onboards once. The main session then holds only what §6 reserves for it — statuses, artifact paths, and the decisions the user must make; raw LSP and grep dumps degrade planning judgement and re-cost every turn they sit in context. The
-plan is the memory: `plan.json` and `revy-plan status` outrank your recollection — after any context
-loss, re-read status before the next decision.
+## Steps
 
-Match the packet to its judgement:
+### 1. Capabilities
 
-- evidence, bug reproduction, and pushback — [behavior.md](references/behavior.md), with [craft.md](references/craft.md) for citations and prose
-- design decisions and test seams — [design.md](references/design.md)
-- contracts, call flow, and decomposition — [spec.md](references/spec.md)
-- review comments and disagreement — [review-loop.md](references/review-loop.md)
+Inventory by purpose: code intelligence (definitions, references, call hierarchy) per language touched; the
+project's own build and test commands; structured and text search. A tool the harness loads on demand counts as available.
+Reading source and grep are the floor. When a missing capability would materially sharpen evidence — a language server, a code-graph tool — propose it with
+its install command and wait for the user's answer.
 
-## 5. Apply and re-run
+**Done:** `Capabilities` lists each capability or its fallback, and every proposal has the user's answer.
 
-Dry-run the typed result with `revy-plan check --result FILE` (or `-` for stdin), fix every problem it lists in one pass, then record it with `revy-plan apply`; it advances the plan atomically and prints `applied <kind> <key> to <plan path> → <state>` — check that it names the plan and packet you meant. `--work` takes the packet kind (e.g. `--work draft`) and may be omitted when one packet is ready. Cite files in the target repository as `path` and in a declared one as `alias:path` (the exploration packet's `repositories` lists each alias and its `cite_as`); a textual scope may be `.` or `alias:.` for a whole repository; keep each evidence item to one repository. Evidence may omit `target`: the CLI stamps the identity of the repository it cites — except anchorless evidence in a plan with several repositories, which must carry the identity it observed. If the checkout moved, run `revy-plan reopen exploration --recapture --reason TEXT` and re-apply the carried evidence (re-run any runtime evidence). An approved tool that failed goes in `tool_failures`, not silently dropped. Rerun `revy-plan status`, and run independent ready packets together. `revy-plan gate` succeeds only at `final` with no unresolved accepted findings (`--allow-accepted` waives the latter).
+### 2. Frame and clarify
 
-Edit, don't resend. A correction, and a `design_brief` or `draft` after a reopen, take `--patch` with id-addressed paths (`/candidate/content/risks/@risk-cache/statement` — `@<id>` matches an element's `id`, `subject`, `symbol`, or `lane`) rather than a full resent candidate. Cite a runtime transcript by the `{path, digest}` that `revy-plan transcript add FILE` prints; restarts and reopens then need no copied files.
+Write `Problem`: the request as given, then the goal, constraints, and acceptance intent. Ask the user every
+question whose answer changes the design, batched, each with your recommended default, and log each question
+with its answer. The settled scope goes into `plan.md`. Ask again whenever a later step surfaces
+a new one.
 
-Recover instead of restarting. When exploration missed something material after approval, `revy-plan reopen exploration --reason TEXT`: capabilities stay approved, and user decisions that come back unchanged keep their answers — when carried answers skip the user decision, tell the user in one line which earlier answers were reused and that `revise` changes them. When only the draft needs rework (a different MR split, a rewritten section), `revy-plan reopen draft --reason TEXT`. When the user or you must change the candidate under review or a final plan — acting on an advisory, on review comments, or on a user decision the user changed — `revy-plan revise --patch FILE --note TEXT [--addresses FINDING...]`, dry-run first with `--check`. While correcting, `--addresses` must name every must-fix finding; at a review escalation, every unresolved finding — and the user's ruling budget is not reset. Accepted findings of a final plan stay accepted unless the revision addresses them. The review budget otherwise restarts from the revision. Corrections may only reword a user decision, never change its answer; a revision that changes one records the change in `status` and the timeline — make it only with the user's approval and tell them.
+**Done:** every requirement is stated by the user or is an assumption the user confirmed.
 
-Once a draft carries figures or code, `revy-plan render` and open the artifact — a plan a human cannot read is not delivered. Fix an over-long title, label, or note (see [presentation.md](references/presentation.md)) before the review waves, not at the finish.
+### 3. Explore
 
-## 6. Surface
+Gather evidence per [evidence.md](references/evidence.md). Dispatch one explorer subagent per independent area
+(a service, a repository, a call path), or one per open question; read a small area yourself. For a bug, the reproduction comes first, then a deep root cause analysis.
 
-Report, never absorb: capability limitations, capability amendments, every reopen and revision with its reason, decisions only the user can make, and any review escalation the CLI raises for a ruling. If status emits a blocked packet, report its remedy and wait for repair.
+**Done:** entry points, consumers, tests, and config of the affected behavior are enumerated in full; the
+owner's depth of the touched area is recorded; every
+impact lane is accounted for; every claim about existing code has an item in `Evidence`.
 
-## 7. Finish at final
+### 4. Challenge and decide
 
-Finish when `revy-plan status` prints `final`. `revy-plan render` and `revy-plan serve` may run at any candidate-bearing state — `reviewing`, `correcting`, or `final` — and carry a draft watermark until the plan is final; render writes Markdown plus a standalone HTML artifact (authored plan first, derived figures in one folded appendix; `--brief` omits the appendix), and serve opens one loopback URL when reachable, otherwise deliver the standalone HTML artifact. Visual tools are optional. The renderer owns every drawing — [presentation.md](references/presentation.md) is which shape fits which content; never hand-write output.
+Push back once the evidence is in: does the change solve the stated problem, is there a smaller one, does it
+break a consumer or invariant the requester did not know about? Each challenge cites evidence. Then lay out the
+decisions per [design.md](references/design.md); every one-way decision and every fork the user owns goes to
+the user with your recommendation.
+
+**Done:** `Decisions` holds every decision with its owner; each challenge and user-owned decision has the
+user's answer; with no challenge, `Decisions` says what you checked.
+
+### 5. Draft
+
+Write `plan.md` per [writing.md](references/writing.md) and [design.md](references/design.md). Drafting is
+judgement over evidence — do it in one subagent given the paths of `log.md` and the references, or yourself
+when the context is already in hand.
+
+**Done:** the checks in design.md § Slices pass; every planned test earns its place per design.md § Tests and
+carries its status; every seam is proven per design.md § Test seams, with its runs
+in `Evidence`.
+
+### 6. Review the draft
+
+Dispatch at least one lens from [reviewers.md](references/reviewers.md), chosen by what the plan touches, each
+as its own fresh subagent, all together.
+
+**Done:** every lens has returned, its findings file sits in `scratch/` and is linked from `Reviews`, and every
+skipped lens has a one-line reason there.
+
+### 7. Converge
+
+Settle every finding per reviewers.md § Converging, logging one line per finding in `Reviews` — its id and
+disposition — and applying each fix as a patch (below).
+
+**Done:** no unresolved must-fix finding remains, and every escalation has the user's ruling.
+
+### 8. Present
+
+Write `presentation.md` per [writing.md](references/writing.md). Read `renderer` from `~/.revy-plan/config.toml`;
+when the file or key is absent, ask the user which installed skill renders plans and save the answer as
+`renderer = "<skill>"`. Dispatch a subagent to invoke that skill with the paths of `plan.md` and
+`presentation.md`, `log.md` as the evidence ledger, the repository root(s), and an output directory inside the
+plan directory. Tell it `plan.md` is the content, verbatim:
+it renders every item and every diagram edge as written, and `presentation.md` decides only the look. When the
+skill is missing or fails, report the error and ask the user for another.
+
+**Done:** every `plan.md` item and diagram edge appears in the render, and the user has its path plus the plan's blind spot —
+the one decision no test can check, or what checks every decision when there is none.
+
+## Patching
+
+Every change after the first review — a review fix, user feedback, a later revision — is a patch to `plan.md`.
+Log each one in `Patches`: what changed, why, which sections it touches, the re-review it got.
+
+Re-review by impact, scoped to what moved. A patch spanning rows takes the highest.
+
+| Patch | Re-review |
+|---|---|
+| Local and additive — a new test scenario or criterion (with the test file it lives in), wording, presentation | none, or a quick check when a fresh eye would catch something |
+| Removes or merges a criterion or test | a quick check that everything it covered is still covered |
+| Changes a contract, flow, decision, data shape, rollout step, slice boundary, or the evidence a claim rests on | the lenses whose subject changed, on the changed sections and the sections that depend on them |
+| Changes the approach or scope — every section rests on it | every relevant lens on the whole plan |
+
+When a patch or finding needs facts the evidence lacks, dispatch an explorer for exactly that question before
+patching.
+
+A patch that changes a user-owned decision goes to the user before it lands.

@@ -1,88 +1,130 @@
 # Design
 
-The approach as decisions with prices. The last cheap place to change direction before the contracts
-become expensive to throw away.
+Precise enough that the implementer makes no design decision.
 
-Read [type-model.md](type-model.md) first — several type choices are decisions, not details.
+## Decisions
 
-## The bar a design is held to
+One table row per decision. A decision needs at least two real alternatives; a single option is a constraint.
 
-Not preferences. A decision that breaks one of these owes the reason in its `Cost paid` cell:
+| Decision | Reversibility | Chosen | Cost paid — by whom | Rejected — and why it loses |
+|---|---|---|---|---|
+| Priority representation | one-way | `enum Priority` | stored tasks need a migration | *String*: no migration, admits invalid values at 6 call sites |
 
-- **Types carry the invariants** — illegal states unrepresentable, parsing at the boundary.
-- **The domain's words are the code's words**, wherever the codebase has a domain worth naming.
-- **A rule lives in one place.** Duplicated *decisions* are the expensive kind; name where each rule
-  lives.
-- **Reuse before addition** — say what a decision reuses, an existing seam, type or module, before what
-  it introduces.
+- Steelman each rejected option, then name the specific cost that kills it.
+- `one-way`: wire formats, public ids, schema shape, auth boundaries — anything a consumer encodes against.
+  Decide every one-way decision now; sort them first.
+- The bar: types carry the invariants and parse at the boundary; the domain's words are the code's words; each
+  rule lives in one place; reuse an existing seam, type, or module before adding one. A decision that misses the
+  bar says why in its cost cell.
+- Improving adjacent code is a scope change: it needs a stated non-goal or an explicit scope line.
+- A decision that contradicts an ADR or documented convention says so in its row.
 
-None of these licenses restructuring code the change does not touch. A design that improves something
-adjacent has changed scope, which needs a non-goal or a behavior-delta row.
+## Regime
 
-## It is a table, not an essay
+**known-domain** (a variation on what the codebase already does — model types exhaustively) or **exploratory**
+(the shape is uncertain — the first slice is a tracer bullet with minimal types). Known-domain is the default and
+goes unstated; an exploratory plan says so in its Delivery section.
 
-| # | Decision | Reversibility | Chosen | Cost paid | Rejected — and why it loses |
-|---|---|---|---|---|---|
-| 1 | Priority representation | **one-way** | `enum Priority` | migration for stored tasks | *String*: no migration, but admits invalid values at 6 call sites |
-| 2 | Sort order | reversible | explicit `--sort` flag | one more flag | *always sort*: silently changes existing output |
+## Contracts
 
-- **Steelman every rejection.** State its strongest form, then the specific cost that kills it.
-- **`Cost paid` names who pays** — a user, a caller, or a future change, never the diff. "One more
-  flag" is a shrug: the real price of an opt-in flag is that the stated problem persists for everyone
-  who does not type it.
-- **No decision without an alternative** — a single-option item is a constraint, not a decision.
-- A decision contradicting an ADR or a documented preference says so in its row.
-- **The `Rejected` column ships in the plan** — carry it into the answered decision's `ruled_out`
-  (each entry an `{ alternative, reason }`), on planner- and user-owned decisions alike. It renders as
-  a "Considered and rejected" sub-list under the decision, so the negations that make the design
-  legible ("there is no two-phase register/ack — the actor already serializes every pop") are visible
-  to the reader, not lost with the brainstorm. A settled decision with a real alternative that omits
-  `ruled_out` has dropped its most load-bearing sentence.
+| Planned | Left to the implementer |
+|---|---|
+| every new or changed type — all fields, the full error taxonomy | internal helpers |
+| signatures of public seams and changed APIs, before → after as code | private decomposition |
+| the to-be call flow — happy path and every failure path | local control flow |
 
-## Reversibility is the column that matters
+Type model, in the target language's real syntax, signatures only:
+- the invariant each type closes, and where parsing happens
+- every error variant (without typed errors: every message a caller can receive)
+- where exhaustiveness is enforced
+- what is load-bearing beyond the shape: derives, ownership, dispatch, `Send`, `#[non_exhaustive]`
 
-`one-way` — expensive or impossible to undo once data or callers depend on it: wire format, public
-IDs, schema shape, auth and ownership boundaries, anything a consumer will encode against.
+Language forks that are decisions, not details:
 
-**Every one-way decision is decided now**, even when the feature it serves ships much later — getting
-it wrong forecloses the design. Reversible ones may defer, and the smallest first cut is the one that
-proves the approach without foreclosing it. Sort one-way rows first.
+| Language | Fork |
+|---|---|
+| Rust | where a bound is enforced — a `NonZero*` newtype deletes the failure *and* any criterion observing it |
+| Go | no sum types: interface + switch vs `Kind` + nilable fields vs `Kind` + `(T, bool)` accessors; is the zero value valid |
+| Python | exceptions vs `T \| Failure`; is the boundary library's model the domain type |
+| TypeScript | the error carrier — thrown, `Result`, Effect — it changes every signature |
+
+To-be flow: every failure path, with the compensating action wherever a failure follows a mutation. When the
+change touches concurrent or transactional code, state locks, ordering, and what is atomic with what; otherwise
+write `no concurrency surface`.
 
 ## Test seams
 
-Decided with the design, not with the test plan — which seam you test at shapes the design.
+1. An existing seam first — this wins.
+2. Then the highest one, closest to the public interface.
+3. As few as possible.
 
-1. **Prefer an existing seam** — this dominates. A new one is a decision that must earn itself.
-2. Then the highest seam possible, closest to the public interface.
-3. Fewest possible. One is the ideal.
+Prove the seam, at the smallest cost that proves it:
+- **Reaches the code** — a passing test that already exercises this code through the seam is the proof; cite it.
+  Otherwise run a probe through the seam.
+- **Guards the constraint** — for each constraint the plan exists to protect, show a test at the seam goes red
+  on a build that violates it: a throwaway probe in `scratch/`, the smallest that shows it, never the full
+  implementation. A seam that stays green against the violation does not guard it.
 
-Rules 1 and 2 point opposite ways whenever the existing seam is mid-height, the common case. **Rule 1
-wins** — but it needs a candidate: where no existing seam can observe the thing (syscall counts,
-residency, wall-clock), a new one is the only option.
+Record each run as evidence.
 
-**Execute the seam before committing to it.** An existing swappable attribute is not a seam until
-injection is shown to work: class attributes do not cross a process-spawn boundary, monkeypatching does
-not survive a re-import.
+## Acceptance criteria
 
-**Then execute a build that violates each constraint the seam is meant to guard.** A build that sorts
-unconditionally, or loads the store before parsing its arguments, can stay green through the whole
-suite while breaking the constraint the plan exists to protect. **A seam that stays green against a
-violating build is not a seam for that constraint.** Where an approved decision requires carrying that
-blind spot — a criterion written loose enough that no policy is presupposed cannot catch the wrong
-policy — say so in the decision's `Cost paid` cell and surface it.
+Criteria restate the behavior change and its edge cases as checks: every given / when / then example maps to a
+criterion, or the plan says why it has none. Each criterion is a plain-English sentence with a `verify`:
+- **falsifiable** — name the observation that would fail it
+- **observable** — an outcome a caller or user sees; an internal mechanism only when it *is* the feature (a
+  cache), saying why
+- **not true by construction** — ask what implementation would fail it
+- `verify` is a command that fails when the work is absent (it asserts on the runner's report of *that* test,
+  since filter-based runners pass on a filter matching nothing), or a manual check naming what a person observes
+- `verify` runs at implementation; checks you run while planning are evidence
 
-## Annotated call stack
+## Tests
 
-The as-is stack, marked. No signatures — those come with the type model. This is the design as a diff:
+Be pragmatic: full coverage of the change with the fewest tests that give it. Coverage is every behavior
+branch, failure path, and contract the change adds or alters. Every test **earns its place** by protecting
+something the rest of the set does not: it catches a realistic bug, pins a contract a consumer relies on, or
+locks a regression. A test that only moves a coverage number protects nothing.
 
-```
-handle_list                    src/main.rs::handle_list
-  ~ Store::all                 src/lib.rs::Store::all      now takes SortKey
-  + Priority::cmp                                          new
-  ~ print_table                src/main.rs::print_table    priority column
-```
+- **Reuse first**: an existing test that already covers a criterion is cited as-is; an existing test whose
+  assertion moves is changed in place; a new test is the last resort.
+- **One behavior per test**, readable top to bottom — arrange, act, assert — with the expected value inline.
+- **Variations of one behavior are rows** of one parametrized test (`rstest`, `pytest.mark.parametrize`, or the
+  project's equivalent), so each body stays linear.
+- **Real safety**: name what each test protects. A test asserting only that nothing crashed, or one
+  restating the implementation, protects nothing — drop it or sharpen its assertion.
+- **Each test sits at its cheapest seam**: unit for pure logic, the existing CLI or integration harness for
+  wiring — one wiring test per path.
 
-`+` added · `-` removed · `~` changed · `->` untouched.
+Each planned test carries a status:
 
-**Where designing shows the behavior work wrong, fix it and carry on.** It is the same plan and nothing
-has been approved, so it is an edit, not an incident.
+| Status | Means |
+|---|---|
+| `new` | a test written for this change |
+| `changed` | an existing test whose setup or assertion this change edits |
+| `existing` | an existing test that already covers a criterion, unchanged — cited by its path and name |
+
+## Slices
+
+The plan ships as a graph of independently mergeable slices.
+
+- **Vertical by default**: each slice makes a caller- or user-visible behavior work and carries its proof.
+  A behaviorless foundation slice is justified only when several slices share it or a compile-compat change
+  has nowhere else to go.
+- **Smallest atomic**: split only where a reviewer could reject one slice and approve its neighbour; after each
+  merge the tree is shippable.
+- **Mergeability label**: `backward-compatible` · `feature-flag <name>` · `scaffolding (consumed by <slice>)` ·
+  `breaking — <what changes for whom>`.
+- **Data migrations** are their own slice, compatible both ways, ahead of their consumer: expand → migrate →
+  contract, dropping the old form only after a zero-reader check.
+- **Wide fan-out** of one contract change: expand → migrate caller groups → contract.
+
+Each slice carries: a plain-English name saying what it delivers for a caller, files, `needs` (real ordering edges, including "its
+verify needs that slice's harness"), its verify, its mergeability label, and the exact
+signatures it consumes and provides (named, defined once in the plan's Changes section), and the binding
+constraints it must keep.
+
+Checks before the draft is done:
+- every `consumes` is `provides`d by a slice reachable through `needs`
+- every criterion is satisfied by exactly one slice
+- every changed file appears in some slice's files; slices sharing a file are ordered or re-cut

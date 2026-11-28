@@ -16,13 +16,11 @@ ln -s $PWD/revy-review/skill ~/.claude/skills/revy-review
 
 ## revy-plan
 
-[**revy-plan**](revy-plan) — plans a non-trivial change evidence-first, before implementation: a canonical
-`plan.json` is the sole editable artifact, and a small Rust CLI drives the whole workflow — deriving the ready
-work, publishing result schemas, running the review loop, rendering the plan, and gating the handoff — while the
-model stays the planner and the judge.
+[**revy-plan**](revy-plan) — plans a non-trivial change evidence-first, before implementation: full impact
+traced, every requirement clarified, reviewed by lenses picked for what the change touches. Writes a concise
+`plan.md`, a separate `log.md` of how it was built, and hands rendering to a configurable skill.
 
 ```
-cargo install --path revy-plan/cli
 ln -s $PWD/revy-plan/skill ~/.claude/skills/revy-plan
 ```
 
