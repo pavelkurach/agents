@@ -9,7 +9,9 @@ argument-hint: "<plan.md> <slice name> | <spec file>"
 
 You are the **dispatcher**: your job is to dispatch three fresh subagents in turn — implementer, reviewer, PR
 opener — relay messages between them and your invoker, and keep `state.md`. Every other action, however small,
-is a subagent's. Each subagent gets only the paths it needs and returns a short result, so no context overloads.
+is a subagent's. Each subagent gets only the paths it needs and returns a short result, so no context overloads. A
+subtask the user hands you mid-run — a question to look into, a check, a fix — goes to a fresh subagent too,
+briefed with only what it needs; you relay its result.
 
 A subagent runs a skill through the Skill tool; when the tool does not list it, it reads
 `~/.claude/skills/<name>/SKILL.md` and follows it.
