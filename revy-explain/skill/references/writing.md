@@ -42,6 +42,11 @@ Sections, in order:
   structure; a table for things that share fields; a list for anything listable. A flow of three or more hops,
   any branch, a lifecycle, or a layering is a Mermaid diagram, failure edges included. The diagram or table opens
   its section; its caption states the fact the section turns on. Prose only for a reason or a trade-off.
+  Any visual, colour, or interaction that helps understanding is worth using.
+- **Colour every path.** In a flow, the main path takes `ok` and each failure path `failure`, on edges as well
+  as nodes, so the reader sees at a glance which way things go wrong. Where the step order is ambiguous, pin
+  it — `%% steps: A, B, C` — main path first, then each failure path, so stepping through tells the story in
+  order.
 - **Zoom like C4.** Each structure diagram stays at one level and its caption names it: *context* (the system,
   its users, outside systems), *container* (each separately run or stored piece — process, CLI, database,
   queue, file store — and the channel between them), *component* (the parts inside one container), *code*
