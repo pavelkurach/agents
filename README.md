@@ -26,6 +26,17 @@ cargo install --path revy-plan/cli
 ln -s $PWD/revy-plan/skill ~/.claude/skills/revy-plan
 ```
 
+## revy-explain
+
+[**revy-explain**](revy-explain) — explains how something works, a task, a pull request, a review report's findings, or a piece of
+code — picture first, from first principles, for a reader who arrives cold and should leave as the system's owner.
+Every flow is drawn end to end, every claim is backed by evidence, and follow-up questions land in an FAQ.
+Rendering goes to a configurable skill, revy-render by default.
+
+```
+ln -s $PWD/revy-explain/skill ~/.claude/skills/revy-explain
+```
+
 ## summarize-technical-book
 
 [**skills/summarize-technical-book**](skills/summarize-technical-book) — turns a technical PDF or
