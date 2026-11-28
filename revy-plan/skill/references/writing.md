@@ -25,7 +25,8 @@ out a section with nothing in it, or write one line where silence would be ambig
    and what changes in it (one clause); then types and signatures before → after as code,
    and the touched flow drawn once: the to-be flow with new and changed edges marked, every failure path
    included.
-8. **Delivery** — the dependency graph of slices, then one block per slice.
+8. **Delivery** — the dependency graph of slices, then one block per slice. Order is by wave — `wave 1`, `wave 2`,
+   … — never by days or other time estimates.
 9. **Acceptance and tests** — one row per criterion: the criterion as a sentence; how it is verified — the test
    that proves it, with its status (`new` / `changed` / `existing`) and name, or a command or manual check; what
    that check protects (the bug, contract, or regression); the slice that delivers it. This column is the only

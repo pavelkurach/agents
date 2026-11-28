@@ -564,13 +564,13 @@ crossings:
 ## Delivery
 
 ```timeline
-caption: Retries go live behind a flag first; the header v2 switch at day 9 is the point of no return
+caption: Retries go live behind a flag first; the header v2 switch in wave 4 is the point of no return
 steps:
-  - { title: Merge scaffolding, when: day 0, kind: step, detail: types and config keys only, rollback: revert the merge }
-  - { title: Shadow breaker, when: day 2, kind: gate, detail: "zero false trips in 48 h" }
-  - { title: Retries for 10% of uploads, when: day 5, kind: step, detail: flag `upload_retry` at 10%, rollback: flag off, current: true }
-  - { title: Switch to header v2, when: day 9, kind: oneway, detail: clients now send the attempt byte }
-  - { title: Remove the legacy path, when: day 14, kind: step, rollback: revert the removal }
+  - { title: Merge scaffolding, when: wave 1, kind: step, detail: types and config keys only, rollback: revert the merge }
+  - { title: Shadow breaker, when: wave 2, kind: gate, detail: "zero false trips in 48 h" }
+  - { title: Retries for 10% of uploads, when: wave 3, kind: step, detail: flag `upload_retry` at 10%, rollback: flag off, current: true }
+  - { title: Switch to header v2, when: wave 4, kind: oneway, detail: clients now send the attempt byte }
+  - { title: Remove the legacy path, when: wave 5, kind: step, rollback: revert the removal }
 ```
 
 ```waves

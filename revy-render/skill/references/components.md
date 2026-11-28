@@ -222,7 +222,7 @@ files:                         # required, ≥1
 ```yaml
 steps:
   - title: Ship behind the flag   # required
-    when: day 0                   # optional
+    when: wave 1                  # optional; an order (wave N), never a duration or date the document lacks
     kind: step                    # step | gate | oneway (default step); the rail turns violet after a oneway
     detail: flag off everywhere   # optional
     rollback: delete the flag     # optional; a oneway step without one says "no rollback"
