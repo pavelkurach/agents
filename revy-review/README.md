@@ -1,10 +1,10 @@
 # revy-review
 
 A code-review skill for agent harnesses, with a small Rust CLI that validates every step. It reviews a change for
-what it breaks: a problem gate, four reviewers that trace impact beyond the diff (two lens pairs, each drawn twice),
-specialists that each review one focus, an investigator on the strongest model for the doubts they could not
-settle, one verifier, an editable report (with unconfirmed suspicions kept separate), and a fix loop for
-self-review.
+what it breaks: a problem gate, one to four lens reviewers that trace impact beyond the diff (as many as the
+change's risk calls for), specialists that each review one focus, parallel investigators on the strongest model for
+the doubts they could not settle, one verifier, an editable report (with unconfirmed suspicions kept separate), a
+visual explanation of it in team mode, and a fix loop for self-review.
 
 - `skill/` — the skill: `SKILL.md` (the orchestrator), the subagent briefs, `rules/`, `reviewers/` (specialists),
   `examples/`.
@@ -13,13 +13,20 @@ self-review.
 
 ## Pipeline
 0. Capabilities → `capabilities.md`: the coordinator inventories code intelligence, runtime execution and search,
-   and waits for the owner only when it has an install or enable command to suggest.
-1. Problem gate (`problem.md`) → `problem.json`; a change that misses its problem stops here.
-2. Reviewers (`reviewer.md`, one lens pair each; each changed unit compared with what base guaranteed and probed by
-   running it) and specialists (`reviewer.md` with a focus) → `reviews/<n>.json`.
-3. Investigator (`investigator.md`) for the suspicions they left → `investigations.json`.
-4. Verifier (`verifier.md`) → `verified.json`; `revy-review sync` renders `report.md`, which the owner edits.
-5. `revy-review comments` prints the post-ready comments; in self-review, `fix` fixes the findings and re-reviews.
+   works out how parallel test runs stay isolated, and waits for the owner only when it has a suggestion or
+   question.
+1. Problem gate (`problem.md`), alongside step 0 → `problem.json`; a change that misses its problem stops here.
+2. The coordinator picks the review depth — `full` (4 lens reviewers), `focused` (2) or `light` (1) — and records
+   it in `state.json`. Reviewers (`reviewer.md`; each changed unit gets an exhaustive edge-case matrix, compared
+   with what base guaranteed and probed by running it wherever reading cannot decide) and specialists
+   (`reviewer.md` with a focus) → `reviews/<n>.json`.
+3. Investigators (`investigator.md`), one per group of related suspicions, in parallel →
+   `investigations/<n>.json`.
+4. Verifier (`verifier.md`) → `verified.json` (written by the coordinator when there is nothing to verify);
+   `revy-review sync` renders `report.md`, which the owner edits; in team mode revy-explain explains it in the
+   background.
+5. `revy-review comments` prints the post-ready comments; in self-review, `fix` fixes the findings and re-reviews
+   only each round's fixes.
 
 `revy-review check` runs after every step and must be clean before the next one.
 
@@ -31,14 +38,17 @@ From this folder:
 
 ## Use
 - `/revy-review` — review the current branch; `/revy-review <PR/MR | commit | A..B>`.
-- `/revy-review fix` — self-review and fix everything (one commit per round, never pushed).
+- `/revy-review fix` — self-review and fix on its own; you can walk away, nothing waits for you. Each round
+  re-reviews only the previous round's fixes, at a depth that follows their severity, until a round finds no new
+  blocking or non-blocking finding (at most 5 rounds); one commit per round, never pushed. The end is one summary
+  per round and what is left open, including the install suggestions it skipped.
 
-A finding the reviewers could reproduce comes with a new test that fails at head; report.md and the comments show
+A blocking finding, or one whose claim rests on runtime behaviour, comes with a new test that fails at head; report.md and the comments show
 the test's code, its command and its failure. Those tests live on a local branch `revy/<first 7 of head>/proofs`,
 named under report.md's `## Proofs` and never pushed or merged into the reviewed branch: `git checkout` it (or
 `git worktree add`) to run them, `git branch -D` it to drop it. The reviewers' own `…/proofs-<n>` branches are
-deleted once the verifier has merged the kept proofs; with no proven finding, no proofs branch remains. With `fix`, each proven finding's test moves onto your branch first, fails, then passes with the fix in
-the same commit; in team mode the PR branch is never touched.
+deleted once the verifier has merged the kept proofs; with no proven finding, no proofs branch remains. With `fix`, each behavioural defect's test (its proof test, or a new one) moves onto your branch first, fails,
+then passes with the fix in the same commit; in team mode the PR branch is never touched.
 
 The CLI, run from a review directory (or given it as `[dir]`; each command reads `state.json` there):
 
@@ -78,9 +88,9 @@ Not when: display-only formatting of an amount that is never stored or summed.
 Report as: `<amount>` is a float, so `<operation>` rounds cents; fix: integer minor units or Decimal end to end.
 ```
 
-The four core reviewers receive every rule, of every topic; findings cite a rule by its id.
+The lens reviewers receive every rule, of every topic; findings cite a rule by its id.
 
-**A specialist** runs after the four core reviewers, as reviewer 5, 6, … (built-ins first, then yours, file-name
+**A specialist** runs alongside the lens reviewers, numbered after them (built-ins first, then yours, file-name
 order, counting only the ones dispatched). Its file starts with optional header lines in any order — `rules:
 <topic>, …` and `dispatch: always | when relevant` — then the prompt: what it reviews. It reviews only that, and
 writes an empty review when the change has nothing for it. `always` (the default) runs it on every review; `when

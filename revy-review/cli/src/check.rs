@@ -3,17 +3,42 @@
 use std::collections::BTreeSet;
 
 use crate::diff::{Change, HeadFiles};
-use crate::investigations::{self, Investigations};
-use crate::model::{Diagnostic, RepoPath, State};
+use crate::investigations::{self, Shards};
+use crate::model::{Diagnostic, Level, RepoPath, Round, State};
 use crate::problem::{self, Problem};
 use crate::proof::{self, Cited, ProofObjects};
 use crate::review::{self, Review};
 use crate::specialists::{self, Specialist};
 use crate::verified::{self, Verified};
 
-/// Reviewers 1..=4 review the whole change through lenses 1+2 and 3+4, each drawn twice.
-/// The dispatched specialists number on from 5 in load order, then the investigator.
-pub const LENS_REVIEWERS: u32 = 4;
+/// How reviewers number: the depth's lens reviewers 1..=L review the whole change, the
+/// dispatched specialists number on from L+1 in load order up to `last`, then the investigators.
+#[derive(Debug, Clone, Copy)]
+struct Roster {
+    level: Level,
+    last: u32,
+}
+
+impl Roster {
+    fn new(level: Level, dispatched: &[&Specialist]) -> Self {
+        let lens = level.lens_reviewers();
+        let last = (lens + 1..).zip(dispatched).last().map_or(lens, |(n, _)| n);
+        Self { level, last }
+    }
+
+    fn is_specialist(self, n: u32) -> bool {
+        (self.level.lens_reviewers() + 1..=self.last).contains(&n)
+    }
+
+    /// Who reviewers 1..=last are, for messages.
+    fn who(self) -> String {
+        format!(
+            "the lens reviewers ({} at depth {}) and the specialists state.json records as dispatched",
+            self.level.lens_reviewers(),
+            self.level.as_str()
+        )
+    }
+}
 
 /// The parsed files of one review directory; absent files are `None` or empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +47,7 @@ pub struct ReviewDir {
     pub problem: Option<Problem>,
     /// `(reviews/<n>.json, review)` in file-name order.
     pub reviews: Vec<(String, Review)>,
-    pub investigations: Option<Investigations>,
+    pub investigations: Shards,
     pub verified: Option<Verified>,
 }
 
@@ -92,10 +117,13 @@ impl ReviewDir {
                 review.ledger.len()
             )
         });
-        let investigations = self
-            .investigations
-            .iter()
-            .map(|doc| format!("{}: ok ({} items)\n", investigations::FILE, doc.items.len()));
+        let investigations = self.investigations.iter().map(|(&n, doc)| {
+            format!(
+                "{}: ok ({} items)\n",
+                investigations::file(n),
+                doc.items.len()
+            )
+        });
         let verified = self.verified.iter().map(|verified| {
             format!(
                 "verified.json: ok ({} kept, {} dropped)\n",
@@ -111,8 +139,8 @@ impl ReviewDir {
     }
 }
 
-/// Reviewer subagents number 1..=reviewers: the lens reviewers, then the specialists
-/// `state.json` records as dispatched.
+/// Reviewer subagents number 1..=last: the depth's lens reviewers, then the specialists
+/// `state.json` records as dispatched; investigators number after them.
 pub fn check(
     dir: &ReviewDir,
     rules: &BTreeSet<String>,
@@ -126,32 +154,124 @@ pub fn check(
         dir.state.specialists.as_ref(),
         !dir.reviews.is_empty(),
     );
-    let reviewers = (LENS_REVIEWERS + 1..)
-        .zip(&dispatched)
-        .last()
-        .map_or(LENS_REVIEWERS, |(n, _)| n);
     if let Some(problem) = &dir.problem {
-        errors.extend(problem::check("problem.json", problem, head));
+        errors.extend(problem::check(
+            "problem.json",
+            problem,
+            dir.state.round,
+            head,
+        ));
     }
+    match &dir.state.depth {
+        Some(depth) => {
+            errors.extend(numbered(
+                dir,
+                Roster::new(depth.level, &dispatched),
+                rules,
+                change,
+                head,
+            ));
+        }
+        // Without a depth nobody's number is known, so nothing numbered can be checked.
+        None if needs_depth(dir) => {
+            errors.push(Diagnostic::new(
+                "state.json: depth",
+                "missing; record the review depth before dispatching reviewers: `\"depth\": {\"level\": \"light\" | \"focused\" | \"full\", \"why\": \"<one line>\"}`",
+            ));
+            return errors;
+        }
+        None => {}
+    }
+    errors.extend(
+        dir.proofs()
+            .iter()
+            .filter_map(|cited| proof::check(cited, proofs)),
+    );
+    // Until an investigator writes its file, suspicions are open; `complete` demands them
+    // resolved once the verifier ran.
+    if !dir.investigations.is_empty() {
+        errors.extend(investigations::check(&dir.investigations, &dir.reviews));
+    }
+    if let Some(verified) = &dir.verified {
+        let expected = verified::expected(&dir.reviews, dir.problem.as_ref(), dir.state.round);
+        errors.extend(verified::check(
+            verified,
+            &expected,
+            dir.state.round,
+            rules,
+            head,
+        ));
+    }
+    errors
+}
+
+/// Reviewers or investigators ran, or the verifier did without a blocking gate stopping
+/// the review first: the coordinator chose a depth before any of them.
+fn needs_depth(dir: &ReviewDir) -> bool {
+    !dir.reviews.is_empty()
+        || !dir.investigations.is_empty()
+        || (dir.verified.is_some() && !gate_blocks(dir))
+}
+
+/// The gate may stop a review only in round 1: a fix round neither reruns it nor
+/// recomputes `blocks`, so a stale `blocks: true` must not excuse missing reviews.
+fn gate_blocks(dir: &ReviewDir) -> bool {
+    matches!(dir.state.round, Round::First)
+        && dir.problem.as_ref().is_some_and(|problem| problem.blocks)
+}
+
+/// Every check that depends on who numbers where.
+fn numbered(
+    dir: &ReviewDir,
+    roster: Roster,
+    rules: &BTreeSet<String>,
+    change: &Change,
+    head: &HeadFiles,
+) -> Vec<Diagnostic> {
+    let mut errors = Vec::new();
+    let last = roster.last;
+    let no_investigator = |n: u32| {
+        format!(
+            "there is no investigator {n}: reviewers 1..{last} are {}; investigators number from {}",
+            roster.who(),
+            last + 1
+        )
+    };
     for (file, review) in &dir.reviews {
         let stem = file
             .strip_prefix("reviews/")
             .and_then(|name| name.strip_suffix(".json"))
             .unwrap_or(file);
         // A specialist reviews only what its prompt covers, which the CLI cannot know, and
-        // the investigator only suspicions: neither owes coverage of the change.
+        // an investigator only suspicions: neither owes coverage of the change.
         let n = review.reviewer.get();
-        let specialist = (LENS_REVIEWERS + 1..=reviewers).contains(&n);
-        let unknown = n > reviewers && !review.is_investigator();
+        let unknown = n > last && !review.is_investigator();
         if unknown {
             errors.push(Diagnostic::new(
                 format!("{file}: reviewer"),
                 format!(
-                    "there is no reviewer {n}: the {LENS_REVIEWERS} lens reviewers and the specialists state.json records as dispatched are 1..{reviewers}, and only the investigator numbers after them"
+                    "there is no reviewer {n}: reviewers 1..{last} are {}, and only investigators number after them",
+                    roster.who()
                 ),
             ));
         }
-        let owes_coverage = !specialist && !unknown && !review.is_investigator();
+        if review.is_investigator() {
+            if n <= last {
+                errors.push(Diagnostic::new(
+                    format!("{file}: reviewer"),
+                    no_investigator(n),
+                ));
+            } else if !dir.investigations.contains_key(&review.reviewer) {
+                errors.push(Diagnostic::new(
+                    file,
+                    format!(
+                        "investigator {n} wrote reviews/{n}.json but no {}; every investigator resolves its group there",
+                        investigations::file(review.reviewer)
+                    ),
+                ));
+            }
+        }
+        let owes_coverage = !roster.is_specialist(n) && !unknown && !review.is_investigator();
         errors.extend(review::check(
             file,
             stem,
@@ -163,37 +283,34 @@ pub fn check(
         ));
     }
     errors.extend(
-        dir.proofs()
-            .iter()
-            .filter_map(|cited| proof::check(cited, proofs)),
+        dir.investigations
+            .keys()
+            .filter(|n| n.get() <= last)
+            .map(|&n| Diagnostic::new(investigations::file(n), no_investigator(n.get()))),
     );
-    if let Some(doc) = &dir.investigations {
-        errors.extend(investigations::check(doc, &dir.reviews));
-    }
-    if let Some(verified) = &dir.verified {
-        errors.extend(complete(dir, reviewers));
-        let expected = verified::expected(&dir.reviews, dir.problem.as_ref());
-        errors.extend(verified::check(verified, &expected, rules, head));
+    if dir.verified.is_some() {
+        errors.extend(complete(dir, roster));
     }
     errors
 }
 
 /// What the verifier needs before it runs: every dispatched reviewer's file (unless a blocking gate
-/// stopped the review before any ran) and, when there are suspicions, their investigation.
-fn complete(dir: &ReviewDir, reviewers: u32) -> Vec<Diagnostic> {
+/// stopped the review before any ran) and, when there are suspicions, their investigations.
+fn complete(dir: &ReviewDir, roster: Roster) -> Vec<Diagnostic> {
+    let last = roster.last;
     let present: BTreeSet<String> = dir.reviews.iter().map(|(file, _)| file.clone()).collect();
-    let required: Vec<String> = (1..=reviewers)
-        .map(|n| format!("reviews/{n}.json"))
-        .collect();
-    let stopped_at_gate = dir.problem.as_ref().is_some_and(|problem| problem.blocks)
-        && required.iter().all(|file| !present.contains(file));
+    let required: Vec<String> = (1..=last).map(|n| format!("reviews/{n}.json")).collect();
+    let stopped_at_gate = gate_blocks(dir) && required.iter().all(|file| !present.contains(file));
     let missing_reviews = required
         .into_iter()
         .filter(|file| !stopped_at_gate && !present.contains(file))
         .map(|file| {
             Diagnostic::new(
                 format!("{file} missing"),
-                format!("the {LENS_REVIEWERS} lens reviewers and the specialists state.json records as dispatched need reviews/1.json..{reviewers}.json, one subagent each"),
+                format!(
+                    "{} need reviews/1.json..{last}.json, one subagent each",
+                    roster.who()
+                ),
             )
         });
     let suspicions: Vec<String> = investigations::raised(&dir.reviews)
@@ -201,12 +318,14 @@ fn complete(dir: &ReviewDir, reviewers: u32) -> Vec<Diagnostic> {
         .map(ToString::to_string)
         .collect();
     let missing_investigations =
-        (dir.investigations.is_none() && !suspicions.is_empty()).then(|| {
+        (dir.investigations.is_empty() && !suspicions.is_empty()).then(|| {
             Diagnostic::new(
-                investigations::FILE,
+                investigations::DIR,
                 format!(
-                    "missing; reviews hold suspicions ({}) that the investigator must resolve",
-                    suspicions.join(", ")
+                    "missing; reviews hold suspicions ({}) that investigators must resolve in {}/<n>.json, n from {}",
+                    suspicions.join(", "),
+                    investigations::DIR,
+                    last + 1
                 ),
             )
         });

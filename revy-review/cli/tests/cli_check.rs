@@ -408,12 +408,13 @@ fn investigator_file_with_empty_ledger_is_accepted() {
     review["ledger"] = json!([]);
     review["findings"][0]["id"] = json!("5.1");
     fx.write_json("reviews/5.json", &review);
+    fx.write_json("investigations/5.json", &json!({"items": []}));
 
     let assert = check(&fx);
 
-    assert
-        .success()
-        .stdout("reviews/5.json: ok (1 findings, 0 ledger entries)\n");
+    assert.success().stdout(
+        "reviews/5.json: ok (1 findings, 0 ledger entries)\ninvestigations/5.json: ok (0 items)\n",
+    );
 }
 
 #[test]
@@ -462,7 +463,7 @@ fn review_numbered_past_the_specialists_is_rejected() {
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "reviews/5.json: reviewer: there is no reviewer 5: the 4 lens reviewers and the specialists state.json records as dispatched are 1..4, and only the investigator numbers after them\n",
+        "reviews/5.json: reviewer: there is no reviewer 5: reviewers 1..4 are the lens reviewers (4 at depth full) and the specialists state.json records as dispatched, and only investigators number after them\n",
     );
 }
 
@@ -705,7 +706,7 @@ fn unit_without_probe_is_rejected() {
     let assert = check(&fx);
 
     assert.failure().stderr(predicates::str::starts_with(
-        "reviews/1.json: ledger[2]: a unit entry needs probe: {\"cmd\", \"output\"} of what ran, or {\"why_not_run\"}",
+        "reviews/1.json: ledger[2]: a unit entry needs probe: {\"cmd\", \"output\"} of what ran, {\"why_not_run\"}, or {\"settled_by_reading\"}",
     ));
 }
 
@@ -744,7 +745,77 @@ fn unit_probe_with_cmd_but_no_output_is_rejected() {
     let assert = check(&fx);
 
     assert.failure().stderr(predicates::str::starts_with(
-        "reviews/1.json: ledger[2].probe: probe is either {\"cmd\", \"output\"} (what ran and what it printed) or {\"why_not_run\"}",
+        "reviews/1.json: ledger[2].probe: probe is one of {\"cmd\", \"output\"} (what ran and what it printed), {\"why_not_run\"} or {\"settled_by_reading\"}",
+    ));
+}
+
+#[test]
+fn unit_fine_settled_by_reading_is_accepted() {
+    let mut entry = unit_entry(&full_cases());
+    entry["probe"] =
+        json!({"settled_by_reading": "pure sum over a slice: no I/O, no shared state"});
+    let fx = with_extra_ledger_entry(entry);
+
+    let assert = check(&fx);
+
+    assert
+        .success()
+        .stdout("reviews/1.json: ok (1 findings, 3 ledger entries)\n");
+}
+
+#[test]
+fn unit_finding_settled_by_reading_is_accepted() {
+    let mut entry = unit_entry(&full_cases());
+    entry["probe"] = json!({"settled_by_reading": "the off-by-one is plain from the bound"});
+    entry["verdict"] = json!("finding");
+    entry["finding"] = json!("1.1");
+    let fx = with_extra_ledger_entry(entry);
+
+    let assert = check(&fx);
+
+    assert
+        .success()
+        .stdout("reviews/1.json: ok (1 findings, 3 ledger entries)\n");
+}
+
+#[test]
+fn unit_suspect_settled_by_reading_is_rejected() {
+    let mut entry = unit_entry(&full_cases());
+    entry["probe"] = json!({"settled_by_reading": "looks fine"});
+    entry["verdict"] = json!("suspect");
+    entry["suspicion"] = suspicion("1.s1");
+    let fx = with_extra_ledger_entry(entry);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(predicates::str::starts_with(
+        "reviews/1.json: ledger[2]: verdict `suspect` with probe.settled_by_reading: a doubt reading did not settle needs a probe that ran ({\"cmd\", \"output\"}) or {\"why_not_run\"}",
+    ));
+}
+
+#[test]
+fn unit_probe_with_blank_settled_by_reading_is_rejected() {
+    let mut entry = unit_entry(&full_cases());
+    entry["probe"] = json!({"settled_by_reading": " "});
+    let fx = with_extra_ledger_entry(entry);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(predicates::str::starts_with(
+        "reviews/1.json: ledger[2].probe.settled_by_reading: text must not be blank",
+    ));
+}
+
+#[test]
+fn unit_probe_both_ran_and_settled_by_reading_is_rejected() {
+    let mut entry = unit_entry(&full_cases());
+    entry["probe"]["settled_by_reading"] = json!("pure function");
+    let fx = with_extra_ledger_entry(entry);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(predicates::str::starts_with(
+        "reviews/1.json: ledger[2].probe: probe is one of {\"cmd\", \"output\"} (what ran and what it printed), {\"why_not_run\"} or {\"settled_by_reading\"}",
     ));
 }
 
@@ -967,8 +1038,10 @@ fn suspicion_id_of_another_reviewer_is_rejected() {
     );
 }
 
-// --- investigations.json -------------------------------------------------------
+// --- investigations/<n>.json ---------------------------------------------------
 
+/// Reviewers 1..=4 at depth full, reviewer 1 raising suspicion 1.s1; no specialist,
+/// so the investigators number from 5.
 fn with_one_suspicion() -> Fixture {
     let mut review = valid_review();
     review["ledger"]
@@ -980,83 +1053,318 @@ fn with_one_suspicion() -> Fixture {
     fx
 }
 
-fn investigation(outcome: &str, finding: &Value, check: &Value) -> Value {
-    json!({"items": [{"suspicion": "1.s1", "outcome": outcome,
-                      "reason": "traced every caller", "evidence": "src/util.py:2 is only called with xs of length 2",
-                      "finding": finding, "check": check}]})
+/// Like `with_one_suspicion`, with reviewer 1 also raising 1.s2.
+fn with_two_suspicions() -> Fixture {
+    let mut review = valid_review();
+    let ledger = review["ledger"].as_array_mut().unwrap();
+    ledger.push(suspect_entry(&suspicion("1.s1")));
+    ledger.push(suspect_entry(&suspicion("1.s2")));
+    let fx = with_review(&review);
+    fx.write_empty_reviews_2_to_4();
+    fx
 }
 
-fn investigator_review() -> Value {
+fn item(suspicion: &str, outcome: &str, finding: &Value, check: &Value) -> Value {
+    json!({"suspicion": suspicion, "outcome": outcome,
+           "reason": "traced every caller", "evidence": "src/util.py:2 is only called with xs of length 2",
+           "finding": finding, "check": check})
+}
+
+fn investigation(outcome: &str, finding: &Value, check: &Value) -> Value {
+    json!({"items": [item("1.s1", outcome, finding, check)]})
+}
+
+fn refuted(suspicion: &str) -> Value {
+    json!({"items": [item(suspicion, "refuted", &json!(null), &json!(null))]})
+}
+
+fn investigator_review(n: u64) -> Value {
     let mut review = valid_review();
-    review["reviewer"] = json!(5);
+    review["reviewer"] = json!(n);
     review["lens"] = json!("investigator");
     review["ledger"] = json!([]);
-    review["findings"][0]["id"] = json!("5.1");
+    review["findings"][0]["id"] = json!(format!("{n}.1"));
     review
 }
 
 #[test]
 fn investigations_resolving_every_suspicion_pass() {
     let fx = with_one_suspicion();
-    fx.write_json(
-        "investigations.json",
-        &investigation("refuted", &json!(null), &json!(null)),
-    );
+    fx.write_json("investigations/5.json", &refuted("1.s1"));
 
     let assert = check(&fx);
 
     assert.success().stdout(
-        "reviews/1.json: ok (1 findings, 3 ledger entries)\nreviews/2.json: ok (0 findings, 2 ledger entries)\nreviews/3.json: ok (0 findings, 2 ledger entries)\nreviews/4.json: ok (0 findings, 2 ledger entries)\ninvestigations.json: ok (1 items)\n",
+        "reviews/1.json: ok (1 findings, 3 ledger entries)\nreviews/2.json: ok (0 findings, 2 ledger entries)\nreviews/3.json: ok (0 findings, 2 ledger entries)\nreviews/4.json: ok (0 findings, 2 ledger entries)\ninvestigations/5.json: ok (1 items)\n",
     );
 }
 
 #[test]
+fn suspicions_split_across_two_investigators_pass() {
+    let fx = with_two_suspicions();
+    fx.write_json("investigations/5.json", &refuted("1.s1"));
+    fx.write_json("investigations/6.json", &refuted("1.s2"));
+
+    let assert = check(&fx);
+
+    assert.success().stdout(predicates::str::ends_with(
+        "investigations/5.json: ok (1 items)\ninvestigations/6.json: ok (1 items)\n",
+    ));
+}
+
+#[test]
+fn investigators_list_in_number_order() {
+    let fx = with_two_suspicions();
+    fx.write_json("investigations/9.json", &refuted("1.s1"));
+    fx.write_json("investigations/10.json", &refuted("1.s2"));
+
+    let assert = check(&fx);
+
+    assert.success().stdout(predicates::str::ends_with(
+        "investigations/9.json: ok (1 items)\ninvestigations/10.json: ok (1 items)\n",
+    ));
+}
+
+#[test]
 fn investigations_missing_a_suspicion_are_rejected() {
-    let fx = with_one_suspicion();
-    fx.write_json("investigations.json", &json!({"items": []}));
+    let fx = with_two_suspicions();
+    fx.write_json("investigations/5.json", &refuted("1.s1"));
 
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "investigations.json: suspicion 1.s1 has no item; the investigator must resolve every suspicion exactly once\n",
+        "investigations: suspicion 1.s2 has no item in any investigations/<n>.json; every suspicion is resolved exactly once\n",
     );
 }
 
 #[test]
 fn investigation_of_an_unknown_suspicion_is_rejected() {
     let fx = with_one_suspicion();
-    let mut doc = investigation("refuted", &json!(null), &json!(null));
-    doc["items"][0]["suspicion"] = json!("1.s7");
-    fx.write_json("investigations.json", &doc);
+    fx.write_json("investigations/5.json", &refuted("1.s7"));
 
     let assert = check(&fx);
 
     assert.failure().stderr(predicates::str::starts_with(
-        "investigations.json: items[0]: 1.s7 is not a suspicion in any reviews/*.json\n",
+        "investigations/5.json: items[0]: 1.s7 is not a suspicion in any reviews/*.json\n",
     ));
 }
 
 #[test]
-fn suspicion_resolved_twice_is_rejected() {
+fn suspicion_resolved_twice_in_one_file_is_rejected() {
     let fx = with_one_suspicion();
-    let mut doc = investigation("refuted", &json!(null), &json!(null));
-    let item = doc["items"][0].clone();
-    doc["items"].as_array_mut().unwrap().push(item);
-    fx.write_json("investigations.json", &doc);
+    let mut doc = refuted("1.s1");
+    let again = doc["items"][0].clone();
+    doc["items"].as_array_mut().unwrap().push(again);
+    fx.write_json("investigations/5.json", &doc);
 
     let assert = check(&fx);
 
-    assert
-        .failure()
-        .stderr("investigations.json: items[1]: suspicion is already resolved by items[0]\n");
+    assert.failure().stderr(
+        "investigations/5.json: items[1]: suspicion 1.s1 is already resolved by investigations/5.json: items[0]\n",
+    );
 }
 
 #[test]
-fn confirmed_naming_an_investigator_finding_passes() {
+fn suspicion_resolved_by_two_investigators_is_rejected_naming_both_files() {
     let fx = with_one_suspicion();
-    fx.write_json("reviews/5.json", &investigator_review());
+    fx.write_json("investigations/5.json", &refuted("1.s1"));
+    fx.write_json("investigations/6.json", &refuted("1.s1"));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "investigations/6.json: items[0]: suspicion 1.s1 is already resolved by investigations/5.json: items[0]\n",
+    );
+}
+
+#[test]
+fn suspicion_an_investigator_raised_and_resolved_in_its_own_file_passes() {
+    let fx = with_one_suspicion();
+    let mut review = investigator_review(5);
+    review["ledger"] = json!([suspect_entry(&suspicion("5.s1"))]);
+    fx.write_json("reviews/5.json", &review);
     fx.write_json(
-        "investigations.json",
+        "investigations/5.json",
+        &json!({"items": [
+            item("1.s1", "confirmed", &json!("5.1"), &json!(null)),
+            item("5.s1", "unresolved", &json!(null), &json!("call first([]) from the billing job"))
+        ]}),
+    );
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn suspicion_an_investigator_raised_left_without_an_item_is_rejected() {
+    let fx = with_one_suspicion();
+    let mut review = investigator_review(5);
+    review["ledger"] = json!([suspect_entry(&suspicion("5.s1"))]);
+    fx.write_json("reviews/5.json", &review);
+    fx.write_json(
+        "investigations/5.json",
+        &investigation("confirmed", &json!("5.1"), &json!(null)),
+    );
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "investigations: suspicion 5.s1 has no item in any investigations/<n>.json; every suspicion is resolved exactly once\n",
+    );
+}
+
+#[test]
+fn suspicion_an_investigator_raised_resolved_in_another_investigators_file_is_rejected() {
+    let fx = with_one_suspicion();
+    let mut review = investigator_review(5);
+    review["ledger"] = json!([suspect_entry(&suspicion("5.s1"))]);
+    fx.write_json("reviews/5.json", &review);
+    fx.write_json(
+        "investigations/5.json",
+        &investigation("confirmed", &json!("5.1"), &json!(null)),
+    );
+    fx.write_json("investigations/6.json", &refuted("5.s1"));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "investigations/6.json: items[0]: investigator 5 raised suspicion 5.s1; resolve it in its own investigations/5.json\n",
+    );
+}
+
+#[test]
+fn investigator_review_without_its_investigations_file_is_rejected() {
+    let fx = with_two_suspicions();
+    fx.write_json("reviews/6.json", &investigator_review(6));
+    fx.write_json(
+        "investigations/5.json",
+        &json!({"items": [item("1.s1", "refuted", &json!(null), &json!(null)),
+                          item("1.s2", "refuted", &json!(null), &json!(null))]}),
+    );
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "reviews/6.json: investigator 6 wrote reviews/6.json but no investigations/6.json; every investigator resolves its group there\n",
+    );
+}
+
+#[test]
+fn investigator_review_numbered_within_the_reviewers_is_rejected() {
+    let fx = with_one_suspicion();
+    fx.write_json("reviews/4.json", &investigator_review(4));
+    fx.write_json("investigations/5.json", &refuted("1.s1"));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "reviews/4.json: reviewer: there is no investigator 4: reviewers 1..4 are the lens reviewers (4 at depth full) and the specialists state.json records as dispatched; investigators number from 5\n",
+    );
+}
+
+#[test]
+fn investigator_numbers_with_a_gap_pass() {
+    let fx = with_two_suspicions();
+    fx.write_json("investigations/5.json", &refuted("1.s1"));
+    fx.write_json("investigations/7.json", &refuted("1.s2"));
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn investigation_numbered_within_the_reviewers_is_rejected() {
+    let fx = with_one_suspicion();
+    fx.write_json("investigations/4.json", &refuted("1.s1"));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "investigations/4.json: there is no investigator 4: reviewers 1..4 are the lens reviewers (4 at depth full) and the specialists state.json records as dispatched; investigators number from 5\n",
+    );
+}
+
+#[test]
+fn investigation_numbered_after_a_light_depths_one_reviewer_passes() {
+    let mut review = valid_review();
+    review["ledger"]
+        .as_array_mut()
+        .unwrap()
+        .push(suspect_entry(&suspicion("1.s1")));
+    let fx = with_review(&review);
+    fx.record_depth("light", "adds only a test");
+    fx.write_json("investigations/2.json", &refuted("1.s1"));
+
+    let assert = check(&fx);
+
+    assert.success().stdout(
+        "reviews/1.json: ok (1 findings, 3 ledger entries)\ninvestigations/2.json: ok (1 items)\n",
+    );
+}
+
+#[test]
+fn investigation_numbered_after_a_dispatched_specialist_passes() {
+    let fx = with_one_suspicion();
+    let mut specialist = empty_review(5);
+    specialist["lens"] = json!("security");
+    fx.write_json("reviews/5.json", &specialist);
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+    fx.record_specialists(&json!({"security": "dispatched"}));
+    fx.write_json("investigations/6.json", &refuted("1.s1"));
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn investigation_file_not_named_by_a_number_is_rejected() {
+    let fx = with_one_suspicion();
+    fx.write_json("investigations/first.json", &refuted("1.s1"));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "investigations/first.json: not an investigator number; investigator n writes investigations/<n>.json\n",
+    );
+}
+
+#[test]
+fn investigation_file_with_a_zero_padded_number_is_rejected() {
+    let fx = with_one_suspicion();
+    fx.write_json("investigations/05.json", &refuted("1.s1"));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "investigations/05.json: not an investigator number; investigator n writes investigations/<n>.json\n",
+    );
+}
+
+#[test]
+fn legacy_single_investigations_file_is_rejected_with_how_to_migrate() {
+    let fx = with_one_suspicion();
+    fx.write_json("investigations.json", &refuted("1.s1"));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "investigations.json: old single-file format; move it to investigations/<n>.json, n = the investigator's reviewer number\n",
+    );
+}
+
+#[test]
+fn confirmed_naming_the_same_investigators_finding_passes() {
+    let fx = with_one_suspicion();
+    fx.write_json("reviews/5.json", &investigator_review(5));
+    fx.write_json(
+        "investigations/5.json",
         &investigation("confirmed", &json!("5.1"), &json!(null)),
     );
 
@@ -1066,17 +1374,53 @@ fn confirmed_naming_an_investigator_finding_passes() {
 }
 
 #[test]
+fn two_investigators_each_confirming_into_their_own_file_pass() {
+    let fx = with_two_suspicions();
+    fx.write_json("reviews/5.json", &investigator_review(5));
+    fx.write_json("reviews/6.json", &investigator_review(6));
+    fx.write_json(
+        "investigations/5.json",
+        &json!({"items": [item("1.s1", "confirmed", &json!("5.1"), &json!(null))]}),
+    );
+    fx.write_json(
+        "investigations/6.json",
+        &json!({"items": [item("1.s2", "confirmed", &json!("6.1"), &json!(null))]}),
+    );
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn confirmed_naming_another_investigators_finding_is_rejected() {
+    let fx = with_two_suspicions();
+    fx.write_json("reviews/5.json", &investigator_review(5));
+    fx.write_json("investigations/5.json", &refuted("1.s1"));
+    fx.write_json(
+        "investigations/6.json",
+        &json!({"items": [item("1.s2", "confirmed", &json!("5.1"), &json!(null))]}),
+    );
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "investigations/6.json: items[0]: confirmed names finding 5.1 of investigator 5; investigator 6 confirms into its own reviews/6.json\n",
+    );
+}
+
+#[test]
 fn confirmed_naming_a_missing_finding_is_rejected() {
     let fx = with_one_suspicion();
     fx.write_json(
-        "investigations.json",
+        "investigations/5.json",
         &investigation("confirmed", &json!("5.1"), &json!(null)),
     );
 
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "investigations.json: items[0]: confirmed names finding 5.1, which is not a finding in any reviews/*.json; append it to reviews/<m>.json first\n",
+        "investigations/5.json: items[0]: confirmed names finding 5.1, which is not a finding in any reviews/*.json; append it to reviews/5.json (lens `investigator`) first\n",
     );
 }
 
@@ -1084,14 +1428,14 @@ fn confirmed_naming_a_missing_finding_is_rejected() {
 fn confirmed_naming_a_reviewers_finding_is_rejected() {
     let fx = with_one_suspicion();
     fx.write_json(
-        "investigations.json",
+        "investigations/5.json",
         &investigation("confirmed", &json!("1.1"), &json!(null)),
     );
 
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "investigations.json: items[0]: confirmed names finding 1.1, which belongs to a reviewer; confirmed must name a finding in the review file with lens `investigator`\n",
+        "investigations/5.json: items[0]: confirmed names finding 1.1, which belongs to a reviewer; confirmed must name a finding in the review file with lens `investigator`\n",
     );
 }
 
@@ -1099,7 +1443,7 @@ fn confirmed_naming_a_reviewers_finding_is_rejected() {
 fn confirmed_without_a_finding_id_is_rejected() {
     let fx = with_one_suspicion();
     fx.write_json(
-        "investigations.json",
+        "investigations/5.json",
         &investigation("confirmed", &json!(null), &json!(null)),
     );
 
@@ -1114,7 +1458,7 @@ fn confirmed_without_a_finding_id_is_rejected() {
 fn unresolved_with_a_check_passes() {
     let fx = with_one_suspicion();
     fx.write_json(
-        "investigations.json",
+        "investigations/5.json",
         &investigation(
             "unresolved",
             &json!(null),
@@ -1131,7 +1475,7 @@ fn unresolved_with_a_check_passes() {
 fn unresolved_without_a_check_is_rejected() {
     let fx = with_one_suspicion();
     fx.write_json(
-        "investigations.json",
+        "investigations/5.json",
         &investigation("unresolved", &json!(null), &json!(null)),
     );
 
@@ -1146,7 +1490,7 @@ fn unresolved_without_a_check_is_rejected() {
 fn refuted_with_a_check_is_rejected() {
     let fx = with_one_suspicion();
     fx.write_json(
-        "investigations.json",
+        "investigations/5.json",
         &investigation("refuted", &json!(null), &json!("run it")),
     );
 
@@ -1345,9 +1689,327 @@ fn scope_creep_id_unknown_to_problem_is_rejected() {
     );
 }
 
+// --- fix rounds: gate items are accounted in round 1 only ----------------------
+
+fn in_round(fx: Fixture, round: u64) -> Fixture {
+    fx.edit_state(|state| state["round"] = json!(round));
+    fx
+}
+
+#[test]
+fn fix_round_needs_no_gate_items_in_verified() {
+    let fx = in_round(with_gate_and_verified(&valid_verified()), 2);
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn fix_round_rejects_a_gate_item_merged_into_a_kept_finding() {
+    let mut verified = valid_verified();
+    verified["findings"][0]["merged_from"] = json!(["1.1", "C1"]);
+    let fx = in_round(with_gate_and_verified(&verified), 2);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "verified.json: findings[0].merged_from[1]: gate items are accounted in round 1 only; this is round 2\n",
+    );
+}
+
+#[test]
+fn fix_round_rejects_a_dropped_scope_creep_item() {
+    let mut verified = valid_verified();
+    verified["dropped"] =
+        json!([{"from": "S1", "refuted_by": "src/util.py:1", "why": "handled in round 1"}]);
+    let fx = in_round(with_gate_and_verified(&verified), 3);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "verified.json: dropped[0].from: gate items are accounted in round 1 only; this is round 3\n",
+    );
+}
+
+#[test]
+fn fix_round_does_not_recompute_blocks() {
+    let mut problem = valid_problem();
+    problem["blocks"] = json!(false);
+    let fx = in_round(with_problem(&problem), 2);
+
+    let assert = check(&fx);
+
+    assert
+        .success()
+        .stdout("problem.json: ok (2 criteria, blocks: false)\n");
+}
+
+#[test]
+fn fix_round_accepts_a_scope_creep_site_the_fix_deleted() {
+    let mut problem = valid_problem();
+    problem["scope_creep"][0]["sites"] = json!(["src/gone.py:1"]);
+    let fx = in_round(with_problem(&problem), 2);
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn fix_round_accepts_criterion_evidence_past_the_end_of_its_file() {
+    let mut problem = valid_problem();
+    problem["criteria"][1]["evidence"] = json!(["src/util.py:9"]);
+    let fx = in_round(with_problem(&problem), 2);
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn fix_round_still_rejects_a_duplicate_criterion_id() {
+    let mut problem = valid_problem();
+    problem["criteria"][1]["id"] = json!("C1");
+    let fx = in_round(with_problem(&problem), 2);
+
+    let assert = check(&fx);
+
+    assert
+        .failure()
+        .stderr("problem.json: criteria[1]: id is already used by criteria[0]\n");
+}
+
+#[test]
+fn fix_round_still_rejects_a_malformed_problem() {
+    let mut problem = valid_problem();
+    problem.as_object_mut().unwrap().remove("statement");
+    let fx = in_round(with_problem(&problem), 2);
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(predicates::str::starts_with(
+        "problem.json: missing field `statement`",
+    ));
+}
+
+#[test]
+fn fix_round_with_a_blocking_gate_and_no_reviews_is_rejected() {
+    let fx = in_round(with_reviews_and_empty_verified(&[]), 2);
+    fx.write_json("problem.json", &valid_problem());
+
+    let assert = check(&fx);
+
+    assert
+        .failure()
+        .stderr(predicates::str::starts_with(format!(
+            "reviews/1.json missing: {NEEDS_1_TO_4}reviews/2.json missing: "
+        )));
+}
+
+#[test]
+fn state_without_a_round_is_rejected() {
+    let fx = fixture();
+    fx.edit_state(|state| {
+        state.as_object_mut().unwrap().remove("round");
+    });
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(predicates::str::starts_with(
+        "state.json: missing field `round`",
+    ));
+}
+
+#[test]
+fn state_with_round_zero_is_rejected() {
+    let fx = in_round(fixture(), 0);
+
+    let assert = check(&fx);
+
+    assert
+        .failure()
+        .stderr(predicates::str::starts_with("state.json: round: "));
+}
+
+// --- state.json: depth ---------------------------------------------------------
+
+const MISSING_DEPTH: &str = "state.json: depth: missing; record the review depth before dispatching reviewers: `\"depth\": {\"level\": \"light\" | \"focused\" | \"full\", \"why\": \"<one line>\"}`\n";
+
+#[test]
+fn reviews_without_a_recorded_depth_are_rejected() {
+    let fx = with_review(&valid_review());
+    fx.forget_depth();
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(MISSING_DEPTH);
+}
+
+#[test]
+fn investigations_without_a_recorded_depth_are_rejected() {
+    let fx = fixture();
+    fx.forget_depth();
+    fx.write_json("investigations/5.json", &json!({"items": []}));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(MISSING_DEPTH);
+}
+
+#[test]
+fn problem_alone_needs_no_depth() {
+    let fx = with_problem(&valid_problem());
+    fx.forget_depth();
+
+    let assert = check(&fx);
+
+    assert
+        .success()
+        .stdout("problem.json: ok (2 criteria, blocks: true)\n");
+}
+
+#[test]
+fn verified_after_a_blocking_gate_needs_no_depth() {
+    let fx = with_problem(&valid_problem());
+    fx.forget_depth();
+    fx.write_json("verified.json", &gate_dropped("stopped at the gate"));
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn verified_without_a_blocking_gate_or_a_depth_is_rejected() {
+    let fx = fixture();
+    fx.forget_depth();
+    fx.write_json("verified.json", &json!({"findings": [], "dropped": []}));
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(MISSING_DEPTH);
+}
+
+#[test]
+fn depth_with_a_blank_why_is_rejected() {
+    let fx = fixture();
+    fx.record_depth("full", " ");
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(predicates::str::starts_with(
+        "state.json: depth.why: text must not be blank",
+    ));
+}
+
+#[test]
+fn depth_with_an_unknown_level_is_rejected() {
+    let fx = fixture();
+    fx.record_depth("deep", "big change");
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(predicates::str::contains(
+        "state.json: depth.level: unknown variant `deep`, expected one of `light`, `focused`, `full`",
+    ));
+}
+
+#[test]
+fn depth_with_an_unknown_field_is_rejected() {
+    let fx = fixture();
+    fx.edit_state(|state| state["depth"]["reviewers"] = json!(4));
+
+    let assert = check(&fx);
+
+    assert
+        .failure()
+        .stderr(predicates::str::contains("unknown field `reviewers`"));
+}
+
+#[test]
+fn light_depth_needs_only_reviewer_1_before_the_verifier() {
+    let fx = with_reviews_and_empty_verified(&[1]);
+    fx.record_depth("light", "adds only a test");
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn focused_depth_without_reviewer_2_is_rejected() {
+    let fx = with_reviews_and_empty_verified(&[1]);
+    fx.record_depth("focused", "logic change whose callers are all in the diff");
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "reviews/2.json missing: the lens reviewers (2 at depth focused) and the specialists state.json records as dispatched need reviews/1.json..2.json, one subagent each\n",
+    );
+}
+
+#[test]
+fn focused_depth_with_reviewers_1_and_2_passes() {
+    let fx = with_reviews_and_empty_verified(&[1, 2]);
+    fx.record_depth("focused", "logic change whose callers are all in the diff");
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn light_depth_rejects_a_second_lens_reviewer() {
+    let fx = with_review(&empty_review(1));
+    fx.write_json("reviews/2.json", &empty_review(2));
+    fx.record_depth("light", "adds only a test");
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "reviews/2.json: reviewer: there is no reviewer 2: reviewers 1..1 are the lens reviewers (1 at depth light) and the specialists state.json records as dispatched, and only investigators number after them\n",
+    );
+}
+
+#[test]
+fn light_depth_numbers_the_first_specialist_2() {
+    let fx = with_reviews_and_empty_verified(&[1]);
+    let mut specialist = empty_review(2);
+    specialist["lens"] = json!("security");
+    specialist["ledger"] = json!([]);
+    fx.write_json("reviews/2.json", &specialist);
+    write(
+        &fx.plugin(),
+        "reviewers/security.md",
+        "Authorization on every changed handler.\n",
+    );
+    fx.record_specialists(&json!({"security": "dispatched"}));
+    fx.record_depth("light", "adds only a test");
+
+    let assert = check(&fx);
+
+    assert.success();
+}
+
+#[test]
+fn focused_lens_reviewer_2_owes_coverage_of_every_changed_file() {
+    let fx = with_review(&empty_review(1));
+    let mut review = empty_review(2);
+    review["ledger"] = json!([]);
+    fx.write_json("reviews/2.json", &review);
+    fx.record_depth("focused", "logic change whose callers are all in the diff");
+
+    let assert = check(&fx);
+
+    assert.failure().stderr(
+        "reviews/2.json: ledger: changed file src/calc.rs has no ledger entry\nreviews/2.json: ledger: changed file src/util.py has no ledger entry\n",
+    );
+}
+
 // --- verified.json: every reviewer and suspicion accounted for ------------------
 
-const NEEDS_1_TO_4: &str = "the 4 lens reviewers and the specialists state.json records as dispatched need reviews/1.json..4.json, one subagent each\n";
+const NEEDS_1_TO_4: &str = "the lens reviewers (4 at depth full) and the specialists state.json records as dispatched need reviews/1.json..4.json, one subagent each\n";
 
 fn with_reviews_and_empty_verified(numbers: &[u64]) -> Fixture {
     let fx = fixture();
@@ -1404,7 +2066,7 @@ fn verified_with_a_dispatched_specialist_but_no_file_for_it_is_rejected() {
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "reviews/5.json missing: the 4 lens reviewers and the specialists state.json records as dispatched need reviews/1.json..5.json, one subagent each\n",
+        "reviews/5.json missing: the lens reviewers (4 at depth full) and the specialists state.json records as dispatched need reviews/1.json..5.json, one subagent each\n",
     );
 }
 
@@ -1577,17 +2239,14 @@ fn verified_with_suspicions_but_no_investigations_is_rejected() {
     let assert = check(&fx);
 
     assert.failure().stderr(
-        "investigations.json: missing; reviews hold suspicions (1.s1) that the investigator must resolve\n",
+        "investigations: missing; reviews hold suspicions (1.s1) that investigators must resolve in investigations/<n>.json, n from 5\n",
     );
 }
 
 #[test]
 fn verified_with_resolved_suspicions_passes() {
     let fx = with_one_suspicion();
-    fx.write_json(
-        "investigations.json",
-        &investigation("refuted", &json!(null), &json!(null)),
-    );
+    fx.write_json("investigations/5.json", &refuted("1.s1"));
     fx.write_json(
         "verified.json",
         &json!({"findings": [],
@@ -1602,9 +2261,9 @@ fn verified_with_resolved_suspicions_passes() {
 #[test]
 fn verified_must_account_for_a_confirmed_investigator_finding() {
     let fx = with_one_suspicion();
-    fx.write_json("reviews/5.json", &investigator_review());
+    fx.write_json("reviews/5.json", &investigator_review(5));
     fx.write_json(
-        "investigations.json",
+        "investigations/5.json",
         &investigation("confirmed", &json!("5.1"), &json!(null)),
     );
     fx.write_json(

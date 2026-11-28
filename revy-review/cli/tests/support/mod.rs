@@ -59,8 +59,8 @@ pub fn read(root: &Path, relative: &str) -> String {
 }
 
 /// base: `src/calc.rs`, `README.md`; head: `src/calc.rs` changed on line 2 and
-/// `src/util.py` added. The review directory holds `state.json` for that range
-/// and the fixture's skill directory.
+/// `src/util.py` added. The review directory holds `state.json` for that range,
+/// the fixture's skill directory and depth `full` (4 lens reviewers).
 pub fn fixture() -> Fixture {
     let repo = tempfile::tempdir().expect("tempdir");
     let root = repo.path();
@@ -107,6 +107,7 @@ pub fn fixture() -> Fixture {
         "mode": "team",
         "round": 1,
         "skill": fixture.skill.path(),
+        "depth": {"level": "full", "why": "changes a public signature"},
     }));
     fixture
 }
@@ -128,9 +129,25 @@ impl Fixture {
 
     /// Records the coordinator's specialist decisions in `state.json`.
     pub fn record_specialists(&self, decisions: &Value) {
+        self.edit_state(|state| state["specialists"] = decisions.clone());
+    }
+
+    /// Replaces the coordinator's review depth in `state.json`.
+    pub fn record_depth(&self, level: &str, why: &str) {
+        self.edit_state(|state| state["depth"] = json!({"level": level, "why": why}));
+    }
+
+    /// Drops the review depth from `state.json`, as before the coordinator decides it.
+    pub fn forget_depth(&self) {
+        self.edit_state(|state| {
+            state.as_object_mut().expect("state object").remove("depth");
+        });
+    }
+
+    pub fn edit_state(&self, edit: impl FnOnce(&mut Value)) {
         let mut state: Value =
             serde_json::from_str(&read(self.dir.path(), "state.json")).expect("state.json");
-        state["specialists"] = decisions.clone();
+        edit(&mut state);
         self.write_state(&state);
     }
 

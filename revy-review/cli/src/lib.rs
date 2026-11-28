@@ -1,5 +1,5 @@
 //! revy-review helper: validates the files a review writes (`problem.json`,
-//! `reviews/<n>.json`, `investigations.json`, `verified.json`) and the accounting
+//! `reviews/<n>.json`, `investigations/<n>.json`, `verified.json`) and the accounting
 //! across them, renders `report.md`, prints post-ready comments, and indexes the
 //! rules and specialists. Parsing, checking and rendering are pure; `cli` and `git` are the only
 //! modules that touch the filesystem or run processes.

@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use crate::diff::HeadFiles;
 use crate::model::{
-    CriterionId, Diagnostic, FindingId, RepoPath, ScopeCreepId, Severity, Site, Sites, Text,
+    CriterionId, Diagnostic, FindingId, RepoPath, Round, ScopeCreepId, Severity, Site, Sites, Text,
     VerifiedId, deserialize_from_str, repeats,
 };
 use crate::problem::{CriterionVerdict, Problem};
@@ -86,12 +86,19 @@ impl Verified {
     }
 }
 
-/// Every reviewer and investigator finding, and every gate item in `problem.json`,
-/// each with how to name it.
+/// Every reviewer and investigator finding, and every first-round gate item, with its name.
+///
+/// Fix rounds reuse problem.json only for its statement and criteria: round 1 already
+/// accounted its gate items.
 pub fn expected(
     reviews: &[(String, Review)],
     problem: Option<&Problem>,
+    round: Round,
 ) -> BTreeMap<Origin, String> {
+    let problem = match round {
+        Round::First => problem,
+        Round::Fix(_) => None,
+    };
     let reviewer = reviews.iter().flat_map(|(file, review)| {
         review.findings.iter().map(move |finding| {
             (
@@ -130,6 +137,7 @@ pub fn expected(
 pub fn check(
     verified: &Verified,
     expected: &BTreeMap<Origin, String>,
+    round: Round,
     rules: &BTreeSet<String>,
     head: &HeadFiles,
 ) -> Vec<Diagnostic> {
@@ -141,7 +149,10 @@ pub fn check(
             uses.entry(*origin).or_default().push(at);
             None
         } else {
-            Some(Diagnostic::new(format!("{FILE}: {at}"), unknown(origin)))
+            Some(Diagnostic::new(
+                format!("{FILE}: {at}"),
+                unknown(origin, round),
+            ))
         }
     };
     for (index, finding) in verified.findings.iter().enumerate() {
@@ -195,12 +206,17 @@ pub fn check(
     errors
 }
 
-fn unknown(origin: &Origin) -> String {
-    match origin {
-        Origin::Reviewer(id) => format!("{id} is not a finding in any reviews/*.json"),
-        Origin::Criterion(id) => {
+fn unknown(origin: &Origin, round: Round) -> String {
+    match (origin, round) {
+        (Origin::Reviewer(id), _) => format!("{id} is not a finding in any reviews/*.json"),
+        (Origin::Criterion(_) | Origin::Scope(_), Round::Fix(round)) => {
+            format!("gate items are accounted in round 1 only; this is round {round}")
+        }
+        (Origin::Criterion(id), Round::First) => {
             format!("{id} is not a not_met or partly criterion in problem.json")
         }
-        Origin::Scope(id) => format!("{id} is not a scope_creep entry in problem.json"),
+        (Origin::Scope(id), Round::First) => {
+            format!("{id} is not a scope_creep entry in problem.json")
+        }
     }
 }

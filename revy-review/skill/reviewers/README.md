@@ -2,7 +2,8 @@
 
 A specialist is an extra reviewer with one focus. Every file here, and every file in `~/.revy-review/reviewers/`,
 is one (this folder first, then yours, each in file-name order); this README is not one. The ones a review
-dispatches run after the four core reviewers, as reviewer 5, 6, … in that order.
+dispatches run alongside the lens reviewers (one, two or four, by the review's depth), numbered after them in that
+order.
 
 ## Format
 `<name>.md` — the file name is the specialist's name, unique across both folders.

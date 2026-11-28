@@ -140,6 +140,7 @@ fn rendered_report_parses_back_to_the_verified_findings() {
         &verified,
         &BTreeMap::new(),
         &[],
+        None,
         &[],
     );
 

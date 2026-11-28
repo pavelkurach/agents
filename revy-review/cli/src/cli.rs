@@ -126,7 +126,7 @@ fn load(dir: &Path) -> Result<Result<ReviewDir, Vec<Diagnostic>>, ShellError> {
         .map_err(|mut found| errors.append(&mut found))
         .ok();
     let problem = keep(&mut errors, read_json(dir, "problem.json")?);
-    let investigations = keep(&mut errors, read_json(dir, investigations::FILE)?);
+    let investigations = load_investigations(dir, &mut errors)?;
     let verified = keep(&mut errors, read_json(dir, "verified.json")?);
     let mut reviews = Vec::new();
     for path in git::files(&dir.join("reviews"), "json")? {
@@ -145,6 +145,32 @@ fn load(dir: &Path) -> Result<Result<ReviewDir, Vec<Diagnostic>>, ShellError> {
         }),
         _ => Err(errors),
     })
+}
+
+/// `investigations/<n>.json` by investigator number; the legacy single file is an error.
+fn load_investigations(
+    dir: &Path,
+    errors: &mut Vec<Diagnostic>,
+) -> Result<investigations::Shards, ShellError> {
+    if dir.join(investigations::LEGACY_FILE).is_file() {
+        errors.push(Diagnostic::new(
+            investigations::LEGACY_FILE,
+            investigations::LEGACY_MIGRATION,
+        ));
+    }
+    let mut shards = investigations::Shards::new();
+    for path in git::files(&dir.join(investigations::DIR), "json")? {
+        let file = format!("{}/{}", investigations::DIR, lossy(path.file_name()));
+        match investigations::number(&lossy(path.file_stem())) {
+            Ok(n) => {
+                if let Some(doc) = keep(errors, read_json(dir, &file)?) {
+                    shards.insert(n, doc);
+                }
+            }
+            Err(message) => errors.push(Diagnostic::new(file, message)),
+        }
+    }
+    Ok(shards)
 }
 
 fn lossy(name: Option<&OsStr>) -> String {
@@ -286,11 +312,8 @@ fn run_sync(dir: &Path) -> Result<Outcome, ShellError> {
     let path = dir.join(report::FILE);
     let rendered = !path.is_file();
     if rendered {
-        let unresolved = review_dir
-            .investigations
-            .as_ref()
-            .map(|doc| investigations::unresolved(&review_dir.reviews, doc))
-            .unwrap_or_default();
+        let unresolved =
+            investigations::unresolved(&review_dir.reviews, &review_dir.investigations);
         let mut sources = BTreeMap::new();
         for finding in &verified.findings {
             if let Some(proof) = &finding.proof
@@ -307,6 +330,7 @@ fn run_sync(dir: &Path) -> Result<Outcome, ShellError> {
                 verified,
                 &sources,
                 &unresolved,
+                review_dir.state.depth.as_ref(),
                 &review_dir.state.skipped(),
             ),
         )?;

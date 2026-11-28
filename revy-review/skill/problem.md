@@ -1,7 +1,9 @@
 # Problem gate
 
 You decide, before any deep review, whether the change `<base>..<head>` in `<repo>` addresses the problem it is
-meant to solve. Decide on your own and read whatever code you need.
+meant to solve. Decide on your own and read whatever code you need — at head through `git show <head>:<path>` or
+a detached worktree under the review directory's `scratch/`; never check out, reset or detach anything in
+`<repo>` itself.
 
 Inputs: repo, base, head, the sources (ticket, PR/MR description, linked issue, commit messages, or the owner's
 one-line goal), the review directory.

@@ -6,15 +6,16 @@ use std::fmt::Write as _;
 
 use crate::diff::Change;
 use crate::investigations::Unresolved;
-use crate::model::{Diagnostic, Severity, Sha, Site, Sites, Text, VerifiedId};
+use crate::model::{Depth, Diagnostic, Severity, Sha, Site, Sites, Text, VerifiedId};
 use crate::proof::{self, TestSource};
 use crate::verified::Verified;
 
 pub const FILE: &str = "report.md";
 const OWN_SECTION: &str = "## My findings";
 
-/// `skipped`: `(name, reason)` of each specialist the coordinator did not dispatch, listed so
-/// the owner sees a wrong skip.
+/// `depth` (absent when the gate stopped the review before one was chosen) and `skipped`,
+/// `(name, reason)` of each specialist the coordinator did not dispatch, are listed so the
+/// owner sees a wrong call.
 ///
 /// A proven finding's body carries its reproduction and, from `sources`, its test's code, so
 /// the comment posted from it does too.
@@ -24,6 +25,7 @@ pub fn render(
     verified: &Verified,
     sources: &BTreeMap<VerifiedId, TestSource>,
     unresolved: &[Unresolved],
+    depth: Option<&Depth>,
     skipped: &[(&str, &Text)],
 ) -> String {
     let mut out = format!("# Review: {target}\n\n");
@@ -68,6 +70,14 @@ pub fn render(
             item.evidence.as_str().trim(),
             item.open_question.as_str().trim(),
             item.check.as_str().trim(),
+        );
+    }
+    if let Some(depth) = depth {
+        let _ = write!(
+            out,
+            "## Review depth\n\n- {}: {}\n\n",
+            depth.level.as_str(),
+            depth.why.as_str().trim()
         );
     }
     if !skipped.is_empty() {

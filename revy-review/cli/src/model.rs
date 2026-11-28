@@ -313,17 +313,89 @@ pub enum Decision {
     Skipped(Text),
 }
 
-/// The fields of `state.json` the helper reads; `mode` and `round` steer only the skill.
+/// How deep the coordinator reviews this change; it fixes how many lens reviewers run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Level {
+    /// One reviewer drawing all four lenses, steered by the coordinator's focus note.
+    Light,
+    /// Lenses 1+2 and 3+4, drawn once each.
+    Focused,
+    /// Lenses 1+2 and 3+4, each drawn twice by independent reviewers.
+    Full,
+}
+
+impl Level {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Focused => "focused",
+            Self::Full => "full",
+        }
+    }
+
+    /// Lens reviewers number 1..=this; the dispatched specialists number on from the next.
+    pub const fn lens_reviewers(self) -> u32 {
+        match self {
+            Self::Light => 1,
+            Self::Focused => 2,
+            Self::Full => 4,
+        }
+    }
+}
+
+/// The coordinator's depth decision, with the reason the owner sees in report.md.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Depth {
+    pub level: Level,
+    pub why: Text,
+}
+
+/// The review round: the first reviews the whole change, each fix round only its fixes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(from = "NonZeroU32")]
+pub enum Round {
+    First,
+    /// Round 2 or later.
+    Fix(FixRound),
+}
+
+/// A round number from 2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FixRound(NonZeroU32);
+
+impl fmt::Display for FixRound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl From<NonZeroU32> for Round {
+    fn from(round: NonZeroU32) -> Self {
+        if round.get() == 1 {
+            Self::First
+        } else {
+            Self::Fix(FixRound(round))
+        }
+    }
+}
+
+/// The fields of `state.json` the helper reads; `mode` steers only the skill.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct State {
     pub repo: AbsolutePath,
     pub target: Text,
     pub base: Sha,
     pub head: Sha,
+    /// Gate items are accounted only in the first round.
+    pub round: Round,
     /// This skill's directory: its `rules/` and `reviewers/` (specialists) load first.
     pub skill: AbsolutePath,
     /// Specialist name → decision; absent until the coordinator decides, before step 1.
     pub specialists: Option<BTreeMap<String, Decision>>,
+    /// Absent until the coordinator decides it, before step 1.
+    pub depth: Option<Depth>,
 }
 
 impl State {

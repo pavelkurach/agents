@@ -3,7 +3,9 @@
 use serde::Deserialize;
 
 use crate::diff::HeadFiles;
-use crate::model::{CriterionId, Diagnostic, RepoPath, ScopeCreepId, Site, Sites, Text, repeats};
+use crate::model::{
+    CriterionId, Diagnostic, RepoPath, Round, ScopeCreepId, Site, Sites, Text, repeats,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -110,7 +112,10 @@ impl Problem {
     }
 }
 
-pub fn check(file: &str, problem: &Problem, head: &HeadFiles) -> Vec<Diagnostic> {
+/// A fix round reuses problem.json only for its statement and criteria: the fixes may move
+/// or delete what its sites cite, and its verdicts and `blocks` describe round 1's head.
+pub fn check(file: &str, problem: &Problem, round: Round, head: &HeadFiles) -> Vec<Diagnostic> {
+    let at_head = matches!(round, Round::First);
     let mut errors = Vec::new();
     let mut error = |at: String, message: String| errors.push(Diagnostic::new(at, message));
     if problem.criteria.is_empty() {
@@ -133,7 +138,7 @@ pub fn check(file: &str, problem: &Problem, head: &HeadFiles) -> Vec<Diagnostic>
                 ),
             );
         }
-        for (site_index, site) in criterion.evidence.iter().enumerate() {
+        for (site_index, site) in criterion.evidence.iter().enumerate().filter(|_| at_head) {
             if let Err(message) = head.resolve(site) {
                 error(
                     format!("{file}: criteria[{index}].evidence[{site_index}]"),
@@ -142,7 +147,7 @@ pub fn check(file: &str, problem: &Problem, head: &HeadFiles) -> Vec<Diagnostic>
             }
         }
     }
-    for (index, creep) in problem.scope_creep.iter().enumerate() {
+    for (index, creep) in problem.scope_creep.iter().enumerate().filter(|_| at_head) {
         for (site_index, site) in creep.sites.all().enumerate() {
             if let Err(message) = head.resolve(site) {
                 error(
@@ -165,7 +170,7 @@ pub fn check(file: &str, problem: &Problem, head: &HeadFiles) -> Vec<Diagnostic>
         );
     }
     let reason = problem.block_reason();
-    if reason.is_some() != problem.blocks {
+    if at_head && reason.is_some() != problem.blocks {
         let detail =
             reason.unwrap_or_else(|| "no core criterion is not_met and one is met".to_owned());
         error(

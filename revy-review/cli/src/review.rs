@@ -71,12 +71,14 @@ pub struct Suspicion {
     pub tried: Text,
 }
 
-/// What the reviewer ran against a unit's riskiest cells, or why it could not run them here.
+/// What the reviewer ran against a unit's riskiest cells, why it could not run them here,
+/// or why reading alone settles them.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "RawProbe")]
 pub enum Probe {
     Ran { cmd: Text, output: Text },
     NotRun { why: Text },
+    SettledByReading { why: Text },
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,16 +87,18 @@ struct RawProbe {
     cmd: Option<Text>,
     output: Option<Text>,
     why_not_run: Option<Text>,
+    settled_by_reading: Option<Text>,
 }
 
 impl TryFrom<RawProbe> for Probe {
     type Error = String;
     fn try_from(raw: RawProbe) -> Result<Self, String> {
-        match (raw.cmd, raw.output, raw.why_not_run) {
-            (Some(cmd), Some(output), None) => Ok(Self::Ran { cmd, output }),
-            (None, None, Some(why)) => Ok(Self::NotRun { why }),
+        match (raw.cmd, raw.output, raw.why_not_run, raw.settled_by_reading) {
+            (Some(cmd), Some(output), None, None) => Ok(Self::Ran { cmd, output }),
+            (None, None, Some(why), None) => Ok(Self::NotRun { why }),
+            (None, None, None, Some(why)) => Ok(Self::SettledByReading { why }),
             _ => Err(
-                "probe is either {\"cmd\", \"output\"} (what ran and what it printed) or {\"why_not_run\"}"
+                "probe is one of {\"cmd\", \"output\"} (what ran and what it printed), {\"why_not_run\"} or {\"settled_by_reading\"}"
                     .to_owned(),
             ),
         }
@@ -163,11 +167,19 @@ impl TryFrom<RawEntry> for LedgerEntry {
                         .to_owned(),
                 );
             }
+            (Kind::Unit, Some(_), Some(Probe::SettledByReading { .. }))
+                if matches!(raw.verdict, RawVerdict::Suspect) =>
+            {
+                return Err(
+                    "verdict `suspect` with probe.settled_by_reading: a doubt reading did not settle needs a probe that ran ({\"cmd\", \"output\"}) or {\"why_not_run\"}"
+                        .to_owned(),
+                );
+            }
             (Kind::Unit, Some(cases), Some(probe)) => Subject::Unit(raw.subject, cases, probe),
             (Kind::Unit, None, _) => return Err("a unit entry needs cases".to_owned()),
             (Kind::Unit, Some(_), None) => {
                 return Err(
-                    "a unit entry needs probe: {\"cmd\", \"output\"} of what ran, or {\"why_not_run\"}"
+                    "a unit entry needs probe: {\"cmd\", \"output\"} of what ran, {\"why_not_run\"}, or {\"settled_by_reading\"}"
                         .to_owned(),
                 );
             }

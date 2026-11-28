@@ -9,7 +9,8 @@ mod support;
 
 use predicates::prelude::PredicateBooleanExt;
 use support::{
-    Fixture, PROOF_TEST, fixture, proof, read, review_with_two_findings, valid_verified, write,
+    Fixture, PROOF_TEST, fixture, proof, read, review_with_two_findings, valid_problem,
+    valid_verified, write,
 };
 
 const RENDERED: &str = "# Review: feature
@@ -31,6 +32,10 @@ Fix: Sum every item: items.iter().sum().
 first([]) raises IndexError.
 
 Fix: Return None for an empty list.
+
+## Review depth
+
+- full: changes a public signature
 
 ## My findings
 ";
@@ -111,7 +116,7 @@ fn sync_refuses_a_review_directory_that_does_not_check_clean() {
     let assert = sync(&fx);
 
     assert.failure().stderr(
-        "reviews/2.json missing: the 4 lens reviewers and the specialists state.json records as dispatched need reviews/1.json..4.json, one subagent each\n",
+        "reviews/2.json missing: the lens reviewers (4 at depth full) and the specialists state.json records as dispatched need reviews/1.json..4.json, one subagent each\n",
     );
     assert!(!fx.dir.path().join("report.md").exists());
 }
@@ -197,7 +202,7 @@ fn sync_rejects_a_malformed_own_finding() {
     let assert = sync(&fx);
 
     assert.failure().stderr(
-        "report.md:22: expected `- path:line [severity] — text`, found `- src/util.py:1 — no severity`\n",
+        "report.md:26: expected `- path:line [severity] — text`, found `- src/util.py:1 — no severity`\n",
     );
 }
 
@@ -212,7 +217,7 @@ fn sync_warns_about_a_site_outside_the_diff() {
     assert
         .success()
         .stdout("report.md: 2 findings (2 to post), 1 own findings\n")
-        .stderr("report.md:22: warning: README.md:1 is outside the diff; it would post as a general comment\n");
+        .stderr("report.md:26: warning: README.md:1 is outside the diff; it would post as a general comment\n");
 }
 
 #[test]
@@ -250,6 +255,76 @@ fn sync_lists_each_skipped_specialist_with_its_reason() {
             "## My findings\n",
             "## Specialists skipped\n\n- migrations: the change adds no migration\n\n## My findings\n"
         )
+    );
+}
+
+#[test]
+fn sync_renders_the_coordinators_depth_and_why() {
+    let fx = fixture();
+    fx.write_json("verified.json", &valid_verified());
+    fx.write_json("reviews/1.json", &review_with_two_findings());
+    fx.record_depth("light", "adds only a test");
+
+    let assert = sync(&fx);
+
+    assert.success();
+    assert_eq!(
+        read(fx.dir.path(), "report.md"),
+        RENDERED.replace(
+            "- full: changes a public signature",
+            "- light: adds only a test"
+        )
+    );
+}
+
+#[test]
+fn sync_renders_no_depth_when_the_gate_stopped_the_review_before_one_was_chosen() {
+    let fx = fixture();
+    fx.forget_depth();
+    fx.write_json("problem.json", &valid_problem());
+    fx.write_json(
+        "verified.json",
+        &serde_json::json!({"findings": [], "dropped": [
+            {"from": "C1", "refuted_by": "src/calc.rs:2", "why": "stopped at the gate"},
+            {"from": "S1", "refuted_by": "src/util.py:1", "why": "stopped at the gate"}
+        ]}),
+    );
+
+    let assert = sync(&fx);
+
+    assert.success();
+    assert_eq!(
+        read(fx.dir.path(), "report.md"),
+        "# Review: feature\n\n## My findings\n"
+    );
+}
+
+#[test]
+fn sync_reads_back_a_report_whose_depth_the_owner_edited() {
+    let fx = with_report(&RENDERED.replace(
+        "- full: changes a public signature",
+        "- full: [owner] agreed\n- not: a field",
+    ));
+
+    let assert = sync(&fx);
+
+    assert
+        .success()
+        .stdout("report.md: 2 findings (2 to post), 0 own findings\n")
+        .stderr("");
+}
+
+#[test]
+fn comments_never_print_the_review_depth() {
+    let fx = with_verified();
+    sync(&fx).success();
+
+    let assert = comments(&fx);
+
+    assert.success().stdout(
+        predicates::str::contains("Review depth")
+            .not()
+            .and(predicates::str::contains("changes a public signature").not()),
     );
 }
 
@@ -293,8 +368,8 @@ fn sync_renders_a_proven_findings_reproduction_and_the_proofs_branch() {
                 "short by its last line.\n\nReproduced by `tests/calc_test.rs::total_counts_the_last_item` — `cargo test --test calc_test`:\n\n```rs\n#[test]\nfn total_counts_the_last_item() {\n    assert_eq!(calc::total(&[1, 2]), 3);\n}\n```\n\nAt head:\n\n    assertion `left == right` failed\n      left: 1\n     right: 3\n\nAt base:\n\n    test total_counts_the_last_item ... ok\n\nFix:",
             )
             .replace(
-                "## My findings\n",
-                &format!("## Proofs\n\nThe reproducing tests are on local branch `{branch}`, never pushed: check it out to run them; `git branch -D {branch}` drops it.\n\n## My findings\n"),
+                "## Review depth\n",
+                &format!("## Proofs\n\nThe reproducing tests are on local branch `{branch}`, never pushed: check it out to run them; `git branch -D {branch}` drops it.\n\n## Review depth\n"),
             )
     );
 }
@@ -472,7 +547,7 @@ fn with_unresolved_suspicion() -> Fixture {
     ));
     fx.write_json("reviews/1.json", &review);
     fx.write_json(
-        "investigations.json",
+        "investigations/5.json",
         &serde_json::json!({"items": [{"suspicion": "1.s1", "outcome": "unresolved",
             "reason": "callers live outside the repo", "evidence": "only in-repo caller passes two items",
             "finding": null, "check": "call first([]) from the billing job"}]}),
@@ -490,8 +565,40 @@ fn sync_renders_an_unresolved_suspicion_after_the_findings() {
     assert_eq!(
         read(fx.dir.path(), "report.md"),
         RENDERED.replace(
-            "## My findings\n",
-            "## Suspicions (unconfirmed)\n\n### first() may be called with an empty list\n- where: src/util.py:2\n- evidence: only in-repo caller passes two items\n- open question: does any caller outside the diff pass an empty list\n- check: call first([]) from the billing job\n\n## My findings\n"
+            "## Review depth\n",
+            "## Suspicions (unconfirmed)\n\n### first() may be called with an empty list\n- where: src/util.py:2\n- evidence: only in-repo caller passes two items\n- open question: does any caller outside the diff pass an empty list\n- check: call first([]) from the billing job\n\n## Review depth\n"
+        )
+    );
+}
+
+#[test]
+fn sync_renders_an_unresolved_suspicion_an_investigator_raised() {
+    let fx = with_verified();
+    fx.write_json(
+        "reviews/5.json",
+        &serde_json::json!({"reviewer": 5, "lens": "investigator", "findings": [], "ledger": [
+            {"kind": "contract", "subject": "first never sees an empty list", "site": "src/util.py:2",
+             "verdict": "suspect", "finding": null,
+             "suspicion": {"id": "5.s1", "claim": "the billing job may pass an empty list",
+                           "evidence": "the job builds xs from a filter",
+                           "open_question": "can the filter return nothing",
+                           "tried": "read the job's filter"}}]}),
+    );
+    fx.write_json(
+        "investigations/5.json",
+        &serde_json::json!({"items": [{"suspicion": "5.s1", "outcome": "unresolved",
+            "reason": "the filter's input lives in production data", "evidence": "the filter has no default",
+            "finding": null, "check": "run the job against an empty day"}]}),
+    );
+
+    let assert = sync(&fx);
+
+    assert.success();
+    assert_eq!(
+        read(fx.dir.path(), "report.md"),
+        RENDERED.replace(
+            "## Review depth\n",
+            "## Suspicions (unconfirmed)\n\n### the billing job may pass an empty list\n- where: src/util.py:2\n- evidence: the filter has no default\n- open question: can the filter return nothing\n- check: run the job against an empty day\n\n## Review depth\n"
         )
     );
 }
