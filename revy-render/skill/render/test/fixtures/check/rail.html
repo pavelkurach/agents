@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: Canvas; color: CanvasText; }
+main { max-width: 360px; margin: 0 auto; padding: 16px; }
+ol { list-style: none; margin: 0; padding: 0; }
+.tl-step { position: relative; display: grid; grid-template-columns: 20px 1fr; gap: 12px; padding-bottom: 18px; }
+.tl-step:not(:last-child)::before { content: ""; position: absolute; left: 9px; top: 12px; bottom: 0; width: 2px; background: currentColor; }
+.tl-dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid currentColor; background: Canvas; }
+</style>
+</head>
+<body>
+<main>
+<section id="plan">
+<h2>Plan</h2>
+<ol class="tl">
+<li class="tl-step"><span class="tl-dot"></span><p class="tl-head"><span class="tl-title">First</span></p></li>
+<li class="tl-step"><span class="tl-dot"></span><p class="tl-head"><span class="tl-title">Last</span></p></li>
+</ol>
+</section>
+</main>
+</body>
+</html>

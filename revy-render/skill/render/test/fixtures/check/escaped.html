@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: Canvas; color: CanvasText; }
+main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+h2 { margin: 0 0 1rem; }
+.scroll { overflow-x: auto; }
+pre { margin: 0; }
+td, th { min-width: 300px; text-align: left; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+<section id="escaped">
+<h2>Escaped</h2>
+<div class="scroll"><pre>a long line of code that is far wider than any phone screen and scrolls in its own box, as it should</pre></div>
+<div class="scroll"><table><thead><tr><th>one</th><th>two</th><th><span class="sr-only">three</span></th></tr></thead></table></div>
+</section>
+</main>
+</body>
+</html>

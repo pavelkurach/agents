@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: Canvas; color: CanvasText; }
+main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+h2 { margin: 0 0 1rem; }
+.grid { display: grid; grid-template-columns: 1fr; }
+.row { display: flex; justify-content: center; }
+.scroll { overflow-x: auto; }
+.scroll svg { min-width: 700px; height: 40px; display: block; }
+</style>
+</head>
+<body>
+<main>
+<section id="diagram">
+<h2>Diagram</h2>
+<div class="grid"><div class="item"><div class="row"><div class="scroll"><svg viewBox="0 0 700 40"><rect width="700" height="40" fill="gray"/></svg></div></div></div></div>
+</section>
+</main>
+</body>
+</html>

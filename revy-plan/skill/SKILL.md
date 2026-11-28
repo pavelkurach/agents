@@ -126,6 +126,18 @@ skill is missing or fails, report the error and ask the user for another.
 **Done:** every `plan.md` item and diagram edge appears in the render, and the user has its path plus the plan's blind spot —
 the one decision no test can check, or what checks every decision when there is none.
 
+## Follow-ups
+
+When the user asks a question about the presented plan, answer it inside the plan:
+1. Answer from `Evidence`; when it lacks the facts, dispatch an explorer for exactly that question and record
+   what it found.
+2. Append the question and answer to `plan.md` § `FAQ` per [writing.md](references/writing.md).
+3. When the answer changes the plan — a decision, a slice, a criterion, a contract — apply it as a patch (below)
+   and name what changed in the entry.
+4. Render again per step 8, and give the user the answer plus the page path.
+
+**Done:** the entry is in `FAQ`, any patch is logged with its re-review, and the render shows the entry.
+
 ## Patching
 
 Every change after the first review — a review fix, user feedback, a later revision — is a patch to `plan.md`.

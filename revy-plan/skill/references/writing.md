@@ -35,6 +35,11 @@ out a section with nothing in it, or write one line where silence would be ambig
 11. **Impact** — one row per lane: affected / unaffected / n/a, and why.
 12. **Start here** — the one first action of the first slice, doable in minutes: a file to open, a test to write,
     a command to run. Starting is the hardest step; make it obvious.
+13. **FAQ** — present once the user has asked a question about the plan: one `###` entry per question, oldest
+    first, headed by the question verbatim. Picture first: a Mermaid diagram when the answer has steps,
+    branches, or structure; a table when it compares options; a located snippet with chunk notes when it is
+    about code; then the fewest words that finish the answer. Cite evidence ids, glossary terms, and code
+    references throughout. End with `Changed:` naming the sections a resulting patch touched, when one did.
 
 ### Plain English
 
@@ -92,9 +97,11 @@ page looks; `plan.md` decides what it says, and the renderer keeps every item.
 
 Everything it names already exists in `plan.md`; content the look needs goes into `plan.md` first. Write:
 - **Reading order** — every `plan.md` section, in the order the reader should meet them, and which open first
-  versus fold (orientation, impact, and the tail of any group past five items fold).
+  versus fold (orientation, impact, and the tail of any group past five items fold; FAQ entries collapse).
 - **Per section** — its visual form: table, list, code block, callout, before/after, tree, cards.
 - **Diagrams** — per `plan.md` diagram, by section: its preferred drawing (flow, sequence, state, layers, …) and
   what to highlight (new, changed, removed, one-way). Its nodes and edges stay in `plan.md`.
+- **Interactivity** — what the reader should be able to explore: steps to walk through, paths to trace, detail to
+  reveal on hover. Ask for any visual, colour, or interaction that makes the plan easier to understand.
 - **Emphasis** — the one or two things the reader must not miss: the riskiest decision, the accepted unknowns.
 - **Test status** — a visible badge per test: `new`, `changed`, `existing`.
