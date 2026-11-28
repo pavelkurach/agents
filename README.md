@@ -35,6 +35,26 @@ Rendering goes to a configurable skill, revy-render by default.
 ln -s $PWD/revy-explain/skill ~/.claude/skills/revy-explain
 ```
 
+## revy-spec-to-pr
+
+[**revy-spec-to-pr**](revy-spec-to-pr) — turns one PR-sized spec, a revy-plan slice or a spec file, into a pull
+request: a fresh subagent implements it to green, a separate one runs revy-review in `fix` mode on the branch,
+and the PR carries the spec and the review's final summary.
+
+```
+ln -s $PWD/revy-spec-to-pr/skill ~/.claude/skills/revy-spec-to-pr
+```
+
+## revy-solve-ticket
+
+[**revy-solve-ticket**](revy-solve-ticket) — the full revy flow on one ticket: explain, plan, then implement wave
+by wave with revy-spec-to-pr. Subagents do the work; the user keeps full understanding and owns every gate —
+understanding reached, plan approved, wave merged. Checkpointed, so a new session resumes it.
+
+```
+ln -s $PWD/revy-solve-ticket/skill ~/.claude/skills/revy-solve-ticket
+```
+
 ## summarize-technical-book
 
 [**skills/summarize-technical-book**](skills/summarize-technical-book) — turns a technical PDF or
