@@ -64,7 +64,7 @@ path — found with `git log -L`, `git blame`, and the host's CLI. A report:
 
 `log.md` § `Request` records the revision explained: the commit, plus `git status --short` of the paths in
 scope, so uncommitted changes are never read as the committed code. When there are uncommitted changes, save them
-to `<dir>/revision.diff` (`git diff <commit> -- <scope>`, plus each untracked file in scope as
+to `<dir>/revision.diff` (`git diff <commit> -- <scope>`, build output and generated files left out, plus each untracked file in scope as
 `git diff --no-index /dev/null <file>`), so § Worktrees can rebuild the explained revision. Per repository it also records the
 **link base**, so the page can link code:
 - the web URL — `git remote get-url origin` as `https://<host>/<owner>/<repo>`, and the host kind (GitHub or

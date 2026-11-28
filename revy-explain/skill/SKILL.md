@@ -103,16 +103,19 @@ Dispatch a fresh verifier with the paths of `explanation.md`, `log.md`, [writing
 repo root. It:
 - checks every claim and diagram edge against its cited source, and every snippet character for character against
   the explained revision;
-- parses every diagram with the lint in writing.md § Presentation, else `mmdc`; a failing diagram is a must-fix, and
-  with no parser it says so;
+- runs the lint in writing.md § Presentation, else parses diagrams with `mmdc`; a failing diagram and every lint
+  warning on `explanation.md` — a path or symbol not found, a line range off — is a must-fix, and with no parser
+  it says so;
 - reads as the cold reader, listing each term used before its definition, each skipped step, each passage breaking
   writing.md § Rules;
 - tags each finding **must-fix** (wrong or unbacked claim, wrong edge, undefined term, skipped step, failing
-  diagram) or **polish**, and each claim `verified`, `wrong`, or `unsettled`.
+  diagram, lint warning) or **polish**, and each claim `verified`, `wrong`, or `unsettled`.
 
 Fix every must-fix and each polish item confined to one passage. A fresh verifier re-checks only the changed
-sections; repeat until one returns no must-fix. After round three, fix and self-check the remaining mechanical
-must-fixes and show the user the rest. Write the trust line (writing.md § explanation.md) from the final tags.
+sections; repeat until one returns no must-fix. Round three is the last verifier round: after it, fix and
+self-check the remaining mechanical must-fixes and show the user the rest. The trust line (writing.md §
+explanation.md) counts the whole document: each claim keeps its latest tag, from whichever round last checked
+its section.
 
 **Done:** the last verifier returns no must-fix, or after round three each remaining must-fix is fixed and
 self-checked or shown to the user; every `unsettled` claim sits under Gaps; the trust line matches the final tags.
